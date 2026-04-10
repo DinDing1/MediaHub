@@ -105,9 +105,41 @@ function hasCjk(text: string): boolean {
  */
 function normalizeQuery(query: string): string {
   return query
+    .replace(/[&＆]/g, ' and ')
     .replace(/[^\w\s\u4e00-\u9fff\-]/g, ' ')
     .replace(/\s+/g, ' ')
     .trim()
+}
+
+function getComparableTokens(text: string): string[] {
+  return normalizeQuery(text)
+    .toLowerCase()
+    .split(/\s+/)
+    .filter(Boolean)
+}
+
+function hasTokenSequence(targetTokens: string[], queryTokens: string[]): boolean {
+  if (queryTokens.length === 0 || queryTokens.length > targetTokens.length) {
+    return false
+  }
+
+  for (let i = 0; i <= targetTokens.length - queryTokens.length; i++) {
+    const matched = queryTokens.every((token, index) => targetTokens[i + index] === token)
+    if (matched) {
+      return true
+    }
+  }
+
+  return false
+}
+
+function getTokenCoverage(sourceTokens: string[], targetTokens: string[]): number {
+  if (sourceTokens.length === 0 || targetTokens.length === 0) {
+    return 0
+  }
+
+  const matchedCount = sourceTokens.filter(token => targetTokens.includes(token)).length
+  return matchedCount / sourceTokens.length
 }
 
 /**
@@ -228,6 +260,12 @@ export async function getMovieDetails(movieId: number): Promise<TMDBDetails | nu
     let titleEn = data.original_title || ''
     let displayTitle = data.title || ''
 
+    const alternativeTitles: string[] = Array.from(new Set<string>(
+      (data.alternative_titles?.titles || [])
+        .map((t: any) => typeof t?.title === 'string' ? t.title.trim() : '')
+        .filter((title: string): title is string => Boolean(title))
+    ))
+
     const isOriginalEnglish = !hasCjk(titleEn)
 
     if (isOriginalEnglish) {
@@ -254,6 +292,7 @@ export async function getMovieDetails(movieId: number): Promise<TMDBDetails | nu
       titleCn,
       titleEn,
       originalTitle: data.original_title || '',
+      alternativeTitles,
       year: (data.release_date || '').substring(0, 4),
       overview: data.overview || '',
       posterUrl: data.poster_path ? `${imageBaseUrl}/w500${data.poster_path}` : null,
@@ -306,6 +345,12 @@ export async function getTvDetails(tvId: number): Promise<TMDBDetails | null> {
       return null
     }
 
+    const alternativeTitles: string[] = Array.from(new Set<string>(
+      (data.alternative_titles?.results || [])
+        .map((t: any) => typeof t?.title === 'string' ? t.title.trim() : '')
+        .filter((title: string): title is string => Boolean(title))
+    ))
+
     let titleCn: string | null = null
     let titleEn = data.original_name || ''
     let displayTitle = data.name || ''
@@ -336,6 +381,7 @@ export async function getTvDetails(tvId: number): Promise<TMDBDetails | null> {
       titleCn,
       titleEn,
       originalTitle: data.original_name || '',
+      alternativeTitles,
       year: (data.first_air_date || '').substring(0, 4),
       overview: data.overview || '',
       posterUrl: data.poster_path ? `${imageBaseUrl}/w500${data.poster_path}` : null,
@@ -451,7 +497,8 @@ export async function searchAndPick(
   }
 
   const normalizedQuery = normalizeQuery(query).toLowerCase()
-  const queryTokens = normalizedQuery.split(/\s+/).filter(Boolean)
+  const queryTokens = getComparableTokens(query)
+  const normalizedQueryCompact = normalizedQuery.replace(/\s+/g, '')
   const isShortEnglishQuery = queryTokens.length > 0 && queryTokens.length <= 3 && /^[a-z0-9\s-]+$/i.test(normalizedQuery)
 
   let bestMatch: TMDBMatchResult | null = null
@@ -461,27 +508,40 @@ export async function searchAndPick(
   for (const result of results) {
     const titleLower = normalizeQuery(result.title).toLowerCase()
     const originalLower = normalizeQuery(result.originalTitle).toLowerCase()
+    const titleCompact = titleLower.replace(/\s+/g, '')
+    const originalCompact = originalLower.replace(/\s+/g, '')
+    const titleTokens = getComparableTokens(result.title)
+    const originalTokens = getComparableTokens(result.originalTitle)
+
+    const exactTokenMatch =
+      (queryTokens.length > 0 && queryTokens.length === titleTokens.length && queryTokens.every((token, index) => token === titleTokens[index])) ||
+      (queryTokens.length > 0 && queryTokens.length === originalTokens.length && queryTokens.every((token, index) => token === originalTokens[index]))
+    const containsTokenMatch = hasTokenSequence(titleTokens, queryTokens) || hasTokenSequence(originalTokens, queryTokens)
+    const partialTokenMatch = hasTokenSequence(queryTokens, titleTokens) || hasTokenSequence(queryTokens, originalTokens)
+    const tokenCoverage = Math.max(
+      getTokenCoverage(queryTokens, titleTokens),
+      getTokenCoverage(queryTokens, originalTokens)
+    )
 
     let score = 0
     let breakdown = ''
     let titleMatchType: 'exact' | 'contains' | 'partial' | 'fuzzy' = 'fuzzy'
 
-    if (titleLower === normalizedQuery || originalLower === normalizedQuery) {
+    if (titleLower === normalizedQuery || originalLower === normalizedQuery || titleCompact === normalizedQueryCompact || originalCompact === normalizedQueryCompact || exactTokenMatch) {
       score = 100
       breakdown = '标题完全匹配: +100'
       titleMatchType = 'exact'
-    } else if (titleLower.includes(normalizedQuery) || originalLower.includes(normalizedQuery)) {
+    } else if (containsTokenMatch) {
       score = 80
       breakdown = '标题包含查询词: +80'
       titleMatchType = 'contains'
-    } else if (normalizedQuery.includes(titleLower) || normalizedQuery.includes(originalLower)) {
+    } else if (partialTokenMatch) {
       score = 60
       breakdown = '查询词包含标题: +60'
       titleMatchType = 'partial'
     } else {
-      const commonChars = [...normalizedQuery].filter(c => titleLower.includes(c) || originalLower.includes(c)).length
-      score = (commonChars / normalizedQuery.length) * 40
-      breakdown = `字符相似度: +${score.toFixed(1)}`
+      score = tokenCoverage * 40
+      breakdown = `词元相似度: +${score.toFixed(1)}`
       titleMatchType = 'fuzzy'
     }
 

@@ -94,6 +94,7 @@ export interface TMDBMatchResult {
   score: number
   yearMatched: boolean
   titleMatchType: 'exact' | 'contains' | 'partial' | 'fuzzy'
+  matchedBy?: 'search' | 'detail-alias'
 }
 
 /**
@@ -126,6 +127,8 @@ export interface TMDBDetails {
   titleEn: string
   /** 原始标题 */
   originalTitle: string
+  /** TMDB 记录中的别名列表（含地区别名） */
+  alternativeTitles?: string[]
   /** 发行年份 */
   year: string
   /** 剧情简介 */

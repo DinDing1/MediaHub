@@ -5,7 +5,7 @@
 
 import { extractKeyInfo } from './file_info'
 import { extractTechInfo, loadReleaseGroups } from './tech_info'
-import { searchAndPick, getMediaDetails, getTvSeasonYear } from './tmdb'
+import { searchMedia, searchAndPick, getMediaDetails, getTvSeasonYear } from './tmdb'
 import { classifyMedia } from './classify'
 import { generateTargetPath } from './rename'
 import { aiRecognizeFileName, isAIRecognizeEnabled } from './ai_recognize'
@@ -82,12 +82,22 @@ async function resolveTraditionalMatch(
       if (yearMatch) {
         return { matchResult: yearMatch, query }
       }
+
+      const yearDetailMatch = await resolveTraditionalExactDetailMatch(query, mediaType, fileInfo.year)
+      if (yearDetailMatch) {
+        return { matchResult: yearDetailMatch, query }
+      }
     }
 
     log.info('整理', `传统TMDB搜索(无年份): query="${query}", type=${mediaType}`)
     const fallbackMatch = await searchAndPick(query, mediaType)
     if (fallbackMatch) {
       return { matchResult: fallbackMatch, query }
+    }
+
+    const fallbackDetailMatch = await resolveTraditionalExactDetailMatch(query, mediaType)
+    if (fallbackDetailMatch) {
+      return { matchResult: fallbackDetailMatch, query }
     }
   }
 
@@ -100,6 +110,11 @@ type AIRecognizeCandidate = {
   year: string
   mediaType: 'movie' | 'tv'
   tmdbId: number
+}
+
+type AIResolveResult = {
+  details: TMDBDetails
+  matchedBy: 'tmdbId' | 'title' | 'titleCn'
 }
 
 function normalizeYear(year?: string | null): string {
@@ -138,38 +153,113 @@ function getBestTokenCoverage(sourceTitles: string[], targetTitles: string[]): n
   }, 0)
 }
 
+function getTMDBDetailTitles(details: TMDBDetails): string[] {
+  const seen = new Set<string>()
+
+  return [
+    details.title,
+    details.titleCn || '',
+    details.titleEn || '',
+    details.originalTitle,
+    ...(details.alternativeTitles || []),
+  ]
+    .map(title => title.trim())
+    .filter(Boolean)
+    .filter(title => {
+      const normalized = normalizeCompareText(title)
+      if (!normalized || seen.has(normalized)) {
+        return false
+      }
+      seen.add(normalized)
+      return true
+    })
+}
+
+function isQueryCompatibleWithDetails(
+  query: string,
+  details: TMDBDetails,
+  trustedYear?: string | null
+): boolean {
+  const normalizedQuery = normalizeCompareText(query)
+  if (!normalizedQuery) {
+    return false
+  }
+
+  const detailNormalizedTitles = getTMDBDetailTitles(details)
+    .map(title => normalizeCompareText(title))
+    .filter(Boolean)
+
+  if (!detailNormalizedTitles.includes(normalizedQuery)) {
+    return false
+  }
+
+  const expectedYear = normalizeYear(trustedYear)
+  const detailsYear = normalizeYear(details.year)
+  if (expectedYear && detailsYear && expectedYear !== detailsYear) {
+    return false
+  }
+
+  return true
+}
+
+async function resolveTraditionalExactDetailMatch(
+  query: string,
+  mediaType: 'movie' | 'tv',
+  year?: string | null
+): Promise<TMDBMatchResult | null> {
+  const results = await searchMedia(query, mediaType, year)
+  if (!results.length) {
+    return null
+  }
+
+  for (const result of results.slice(0, 5)) {
+    const details = await getMediaDetails(result.id, mediaType)
+    if (!details || !isQueryCompatibleWithDetails(query, details, year)) {
+      continue
+    }
+
+    log.info('整理', `传统TMDB详情别名命中: query="${query}", year=${year || '—'}, candidate=${details.title} (${details.year}) [${mediaType}] TMDB=${details.id}`)
+    return {
+      result,
+      score: year ? 130 : 100,
+      yearMatched: !!(year && details.year === year),
+      titleMatchType: 'exact',
+      matchedBy: 'detail-alias',
+    }
+  }
+
+  return null
+}
+
 function isAIResultCompatible(
   aiResult: AIRecognizeCandidate,
-  details: TMDBDetails
+  details: TMDBDetails,
+  trustedYear?: string | null
 ): boolean {
-  const aiTitles = [aiResult.title, aiResult.titleCn].filter(Boolean)
-  const detailTitles = [details.title, details.titleCn || '', details.titleEn || '', details.originalTitle].filter(Boolean)
-
-  const aiNormalizedTitles = aiTitles
+  const aiNormalizedTitles = [aiResult.title, aiResult.titleCn]
+    .filter(Boolean)
     .map(title => normalizeCompareText(title))
     .filter(Boolean)
 
-  const detailNormalizedTitles = detailTitles
+  const detailNormalizedTitles = getTMDBDetailTitles(details)
     .map(title => normalizeCompareText(title))
     .filter(Boolean)
+
+  if (aiNormalizedTitles.length === 0 || detailNormalizedTitles.length === 0) {
+    return false
+  }
 
   const exactNormalizedMatch = aiNormalizedTitles.some(aiTitle =>
     detailNormalizedTitles.some(detailTitle => aiTitle === detailTitle)
   )
 
-  const tokenCoverage = getBestTokenCoverage(aiTitles, detailTitles)
-  const aiTokenCount = Math.max(...aiTitles.map(title => getComparableTitleTokens(title).length), 0)
-
-  const titleMatched = exactNormalizedMatch ||
-    (aiTokenCount <= 2 ? tokenCoverage >= 1 : tokenCoverage >= 0.7)
-
-  if (!titleMatched) {
+  if (!exactNormalizedMatch) {
     return false
   }
 
-  const aiYear = normalizeYear(aiResult.year)
+  const expectedYear = normalizeYear(trustedYear)
   const detailsYear = normalizeYear(details.year)
-  if (aiYear && detailsYear && aiYear !== detailsYear) {
+  if (expectedYear && detailsYear && expectedYear !== detailsYear) {
     return false
   }
 
@@ -184,32 +274,55 @@ function isAIResultConsistentWithHints(
     year?: string | null
   }
 ): boolean {
-  const hintTokenGroups = [hints.title, hints.fallbackQuery]
-    .filter(Boolean)
-    .map(title => getComparableTitleTokens(title!))
-    .filter(tokens => tokens.length > 0)
-
-  if (hintTokenGroups.length === 0) {
+  const hintTitles = [hints.title, hints.fallbackQuery].filter(Boolean)
+  if (hintTitles.length === 0) {
     return true
   }
 
-  const aiTokenGroups = [aiResult.title, aiResult.titleCn]
-    .filter(Boolean)
-    .map(title => getComparableTitleTokens(title))
-    .filter(tokens => tokens.length > 0)
-
-  if (aiTokenGroups.length === 0) {
+  const aiTitles = [aiResult.title, aiResult.titleCn].filter(Boolean)
+  if (aiTitles.length === 0) {
     return false
   }
 
-  const bestCoverage = hintTokenGroups.reduce((best, hintTokens) => {
-    const maxGroupCoverage = aiTokenGroups.reduce((groupBest, aiTokens) => {
-      const matchedCount = hintTokens.filter(token => aiTokens.includes(token)).length
-      return Math.max(groupBest, matchedCount / hintTokens.length)
+  const hintNormalizedTitles = hintTitles
+    .map(title => normalizeCompareText(title!))
+    .filter(Boolean)
+
+  const aiNormalizedTitles = aiTitles
+    .map(title => normalizeCompareText(title))
+    .filter(Boolean)
+
+  const exactNormalizedMatch = hintNormalizedTitles.some(hintTitle =>
+    aiNormalizedTitles.some(aiTitle => aiTitle === hintTitle)
+  )
+
+  if (!exactNormalizedMatch) {
+    const hintTokenGroups = hintTitles
+      .map(title => getComparableTitleTokens(title!))
+      .filter(tokens => tokens.length > 0)
+
+    const aiTokenGroups = aiTitles
+      .map(title => getComparableTitleTokens(title))
+      .filter(tokens => tokens.length > 0)
+
+    if (hintTokenGroups.length === 0 || aiTokenGroups.length === 0) {
+      return false
+    }
+
+    const bestCoverage = hintTokenGroups.reduce((best, hintTokens) => {
+      const maxGroupCoverage = aiTokenGroups.reduce((groupBest, aiTokens) => {
+        const matchedCount = hintTokens.filter(token => aiTokens.includes(token)).length
+        return Math.max(groupBest, matchedCount / hintTokens.length)
+      }, 0)
+
+      return Math.max(best, maxGroupCoverage)
     }, 0)
 
-    return Math.max(best, maxGroupCoverage)
-  }, 0)
+    const hintTokenCount = Math.max(...hintTokenGroups.map(tokens => tokens.length), 0)
+    if (bestCoverage < (hintTokenCount <= 2 ? 1 : 0.7)) {
+      return false
+    }
+  }
 
   const hintYear = normalizeYear(hints.year)
   const aiYear = normalizeYear(aiResult.year)
@@ -217,18 +330,19 @@ function isAIResultConsistentWithHints(
     return false
   }
 
-  return bestCoverage >= 0.7
+  return true
 }
 
 function shouldTrustAITmdbId(
   aiResult: AIRecognizeCandidate,
-  details: TMDBDetails | null
+  details: TMDBDetails | null,
+  trustedYear?: string | null
 ): boolean {
   if (!details) {
     return false
   }
 
-  return isAIResultCompatible(aiResult, details)
+  return isAIResultCompatible(aiResult, details, trustedYear)
 }
 
 function isReliableShortEnglishTraditionalMatch(
@@ -256,16 +370,98 @@ function isReliableShortEnglishTraditionalMatch(
   return false
 }
 
+function isTraditionalMatchCloseEnoughToKeep(
+  matchResult: TMDBMatchResult,
+  fileYear: string | null,
+  searchQuery: string
+): boolean {
+  if (isReliableShortEnglishTraditionalMatch(matchResult, fileYear, searchQuery)) {
+    return true
+  }
+
+  const normalizedQuery = normalizeCompareText(searchQuery)
+  const normalizedTitle = normalizeCompareText(matchResult.result.title)
+  const normalizedOriginalTitle = normalizeCompareText(matchResult.result.originalTitle)
+  const exactTitleMatched = normalizedQuery === normalizedTitle || normalizedQuery === normalizedOriginalTitle
+
+  if (exactTitleMatched && (!fileYear || matchResult.yearMatched) && matchResult.score >= (fileYear ? 120 : 100)) {
+    return true
+  }
+
+  return false
+}
+
+async function resolveAIResultToDetails(
+  aiResult: AIRecognizeCandidate,
+  mediaType: 'movie' | 'tv',
+  trustedYear?: string | null
+): Promise<AIResolveResult | null> {
+  const candidates = [
+    { query: aiResult.title, matchedBy: 'title' as const },
+    { query: aiResult.titleCn, matchedBy: 'titleCn' as const },
+  ].filter(candidate => candidate.query)
+
+  const seenResultIds = new Set<number>()
+
+  for (const candidate of candidates) {
+    const queryVariants = [
+      { query: candidate.query, year: aiResult.year, label: aiResult.year ? '年份优先' : '原始查询' },
+      { query: candidate.query, year: null, label: '无年份' },
+    ].filter((variant, index, variants) => {
+      const key = `${variant.query}@@${variant.year || ''}`
+      return variants.findIndex(item => `${item.query}@@${item.year || ''}` === key) === index
+    })
+
+    for (const variant of queryVariants) {
+      const results = await searchMedia(variant.query, mediaType, variant.year)
+
+      if (!results.length) {
+        log.info('整理', `AI落地TMDB无结果: query="${variant.query}", year=${variant.year || '—'}, mediaType=${mediaType}, source=${candidate.matchedBy}`)
+        continue
+      }
+
+      const summary = results
+        .slice(0, 3)
+        .map(result => `${result.title} (${result.year || '—'})#${result.id}`)
+        .join(' | ')
+      log.info('整理', `AI落地TMDB候选: query="${variant.query}", year=${variant.year || '—'}, mediaType=${mediaType}, source=${candidate.matchedBy}, mode=${variant.label}, results=${summary}`)
+
+      for (const result of results) {
+        if (seenResultIds.has(result.id)) {
+          continue
+        }
+        seenResultIds.add(result.id)
+
+        const details = await getMediaDetails(result.id, mediaType)
+        if (details && isAIResultCompatible(aiResult, details, trustedYear)) {
+          log.info('整理', `AI候选成功落地TMDB: ${details.title} (${details.year}) [${mediaType}] TMDB=${details.id}, source=${candidate.matchedBy}, mode=${variant.label}`)
+          return { details, matchedBy: candidate.matchedBy }
+        }
+
+        if (details) {
+          log.info('整理', `AI落地候选不兼容，跳过: ${details.title} (${details.year}) [${mediaType}] TMDB=${details.id}`)
+        }
+      }
+    }
+  }
+
+  return null
+}
+
 function shouldInvokeAI(matchResult: TMDBMatchResult | null, fileYear: string | null, searchQuery: string): boolean {
   if (!matchResult) return true
+
+  if (matchResult.matchedBy === 'detail-alias') {
+    return false
+  }
+
+  if (isTraditionalMatchCloseEnoughToKeep(matchResult, fileYear, searchQuery)) {
+    return false
+  }
 
   if (matchResult.titleMatchType === 'fuzzy') return true
 
   if (fileYear && !matchResult.yearMatched) return true
-
-  if (isReliableShortEnglishTraditionalMatch(matchResult, fileYear, searchQuery)) {
-    return false
-  }
 
   if (matchResult.score < AI_INVOKE_MIN_SCORE) return true
 
@@ -324,7 +520,7 @@ async function tryAIRecognize(
   if (aiResult.tmdbId > 0) {
     log.info('整理', `优先使用AI返回的TMDB ID: ${aiResult.tmdbId}`)
     const details = await getMediaDetails(aiResult.tmdbId, mediaType)
-    if (details && shouldTrustAITmdbId(aiResult, details)) {
+    if (details && shouldTrustAITmdbId(aiResult, details, hints.year)) {
       return { details, mediaType }
     }
     if (details) {
@@ -334,32 +530,12 @@ async function tryAIRecognize(
     }
   }
 
-  if (aiResult.title) {
-    const searchResult = await searchAndPick(aiResult.title, mediaType, aiResult.year)
-    if (searchResult) {
-      const details = await getMediaDetails(searchResult.result.id, mediaType)
-      if (details && isAIResultCompatible(aiResult, details)) {
-        return { details, mediaType }
-      }
-      if (details) {
-        log.warn('整理', `AI英文标题搜索结果与AI候选不一致，继续尝试其他候选: ${details.title} (${details.year})`)
-      }
-    }
+  const resolved = await resolveAIResultToDetails(aiResult, mediaType, hints.year)
+  if (resolved) {
+    return { details: resolved.details, mediaType }
   }
 
-  if (aiResult.titleCn && aiResult.titleCn !== aiResult.title) {
-    const searchResult = await searchAndPick(aiResult.titleCn, mediaType, aiResult.year)
-    if (searchResult) {
-      const details = await getMediaDetails(searchResult.result.id, mediaType)
-      if (details && isAIResultCompatible(aiResult, details)) {
-        return { details, mediaType }
-      }
-      if (details) {
-        log.warn('整理', `AI中文标题搜索结果与AI候选不一致，继续尝试其他候选: ${details.title} (${details.year})`)
-      }
-    }
-  }
-
+  log.warn('整理', `AI候选已识别成功，但未能在TMDB中找到兼容结果: title="${aiResult.title}", titleCn="${aiResult.titleCn}", year=${aiResult.year}, mediaType=${mediaType}`)
   return null
 }
 
