@@ -1,4 +1,4 @@
-name: 构建 MediaHub_FPK
+name: 构建 MediaHub
 
 on:
   workflow_dispatch:
@@ -47,14 +47,14 @@ jobs:
         run: |
           VERSION=$(grep '^version=' MediaHub/mediahub/manifest | cut -d'=' -f2)
           echo "version=$VERSION" >> $GITHUB_OUTPUT
-          
+
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             echo "手动触发，执行构建"
             echo "should_build=true" >> $GITHUB_OUTPUT
             echo "push_to_fndepot=${{ github.event.inputs.push_to_fndepot }}" >> $GITHUB_OUTPUT
             exit 0
           fi
-          
+
           git diff HEAD~1 HEAD -- MediaHub/mediahub/manifest | grep -q "^+version=" && {
             echo "版本号已更新，执行构建"
             echo "should_build=true" >> $GITHUB_OUTPUT
@@ -134,7 +134,7 @@ jobs:
       - name: 上传构建产物
         uses: actions/upload-artifact@v4
         with:
-          name: fpk-${{ matrix.arch }}
+          name: mediahub-${{ matrix.arch }}
           path: MediaHub/mediahub-${{ needs.prepare.outputs.version }}-${{ matrix.arch }}.fpk
 
   release:
@@ -154,9 +154,9 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           VERSION="${{ needs.prepare.outputs.version }}"
-          
+
           gh release list --limit 100 --repo ${{ github.repository }} --json tagName --jq '.[].tagName' | while read tag; do
-            if [[ "$tag" == fpk-v* && "$tag" != "fpk-v$VERSION" ]]; then
+            if [[ ( "$tag" == mediahub-* && "$tag" != "mediahub-$VERSION" ) || ( "$tag" == fpk-v* ) ]]; then
               echo "删除旧版本: $tag"
               gh release delete "$tag" --repo ${{ github.repository }} --yes || true
             fi
@@ -165,7 +165,7 @@ jobs:
       - name: 在当前仓库创建发布
         uses: softprops/action-gh-release@v1
         with:
-          tag_name: fpk-v${{ needs.prepare.outputs.version }}
+          tag_name: mediahub-${{ needs.prepare.outputs.version }}
           name: MediaHub v${{ needs.prepare.outputs.version }}
           files: artifacts/**/*.fpk
           generate_release_notes: false
@@ -176,20 +176,20 @@ jobs:
           GH_TOKEN: ${{ secrets.FNDEPOT_TOKEN }}
         run: |
           VERSION="${{ needs.prepare.outputs.version }}"
-          
+
           echo "删除 FnDepot 旧版本..."
           gh release list --limit 100 --repo DinDing1/FnDepot --json tagName --jq '.[].tagName' | while read tag; do
-            if [[ "$tag" == fpk-v* && "$tag" != "fpk-v$VERSION" ]]; then
+            if [[ ( "$tag" == mediahub-* && "$tag" != "mediahub-$VERSION" ) || ( "$tag" == fpk-v* ) ]]; then
               echo "删除旧版本: $tag"
               gh release delete "$tag" --repo DinDing1/FnDepot --yes || true
             fi
           done
-          
+
           echo "准备文件..."
           mkdir -p fndepot_files
-          
+
           cd artifacts
-          
+
           for dir in */; do
             if [ -d "$dir" ]; then
               arch_name=$(basename "$dir")
@@ -202,16 +202,16 @@ jobs:
               fi
             fi
           done
-          
+
           cd ../fndepot_files
-          
+
           echo "上传到 FnDepot..."
           for file in *.fpk; do
             if [ -f "$file" ]; then
               echo "上传: $file"
-              gh release upload "fpk-v$VERSION" "$file" --repo DinDing1/FnDepot --clobber || {
+              gh release upload "mediahub-$VERSION" "$file" --repo DinDing1/FnDepot --clobber || {
                 echo "Release 不存在，创建新的 Release"
-                gh release create "fpk-v$VERSION" "$file" \
+                gh release create "mediahub-$VERSION" "$file" \
                   --repo DinDing1/FnDepot \
                   --title "MediaHub v$VERSION" \
                   --notes "MediaHub 自动构建发布
