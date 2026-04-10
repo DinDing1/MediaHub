@@ -1,0 +1,91 @@
+name: Build MediaHub
+
+on:
+  workflow_dispatch:
+    inputs:
+      platform:
+        description: '构建平台'
+        required: true
+        default: 'all'
+        type: choice
+        options:
+          - all
+          - x86_64
+          - aarch64
+      create_release:
+        description: '创建 Release'
+        required: true
+        default: true
+        type: boolean
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
+    steps:
+      - id: set-matrix
+        run: |
+          if [ "${{ github.event.inputs.platform }}" = "x86_64" ]; then
+            echo 'matrix={"include":[{"arch":"x86_64","runner":"ubuntu-latest"}]}' >> $GITHUB_OUTPUT
+          elif [ "${{ github.event.inputs.platform }}" = "aarch64" ]; then
+            echo 'matrix={"include":[{"arch":"aarch64","runner":"ubuntu-24.04-arm"}]}' >> $GITHUB_OUTPUT
+          else
+            echo 'matrix={"include":[{"arch":"x86_64","runner":"ubuntu-latest"},{"arch":"aarch64","runner":"ubuntu-24.04-arm"}]}' >> $GITHUB_OUTPUT
+          fi
+
+  build:
+    needs: prepare
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      matrix: ${{ fromJson(needs.prepare.outputs.matrix) }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Build project
+        run: npm run build
+
+      - name: Create archive
+        run: tar -czvf mediahub-${{ matrix.arch }}.tar.gz .output/
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-${{ matrix.arch }}
+          path: mediahub-${{ matrix.arch }}.tar.gz
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    if: ${{ github.event.inputs.create_release == 'true' }}
+
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Get version
+        id: version
+        run: echo "version=$(date +'%Y%m%d-%H%M%S')" >> $GITHUB_OUTPUT
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: v${{ steps.version.outputs.version }}
+          name: MediaHub ${{ steps.version.outputs.version }}
+          files: artifacts/**/*.tar.gz
+          generate_release_notes: true

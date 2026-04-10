@@ -1,0 +1,24 @@
+#!/bin/bash
+
+### This script is called after the user uninstalls the application.
+
+if [ "$wizard_data_action" = "delete" ]; then
+    VOL=$(echo "${TRIM_PKGVAR}" | sed 's|/vol\([0-9]*\)/.*|\1|')
+    APPNAME="mediahub"
+    
+    DIRS_TO_REMOVE=(
+        "/vol${VOL}/@appconf/${APPNAME}"
+        "/vol${VOL}/@apphome/${APPNAME}"
+        "/vol${VOL}/@appcenter/${APPNAME}"
+        "/vol${VOL}/@apptemp/${APPNAME}"
+        "/vol${VOL}/@appdata/${APPNAME}"
+    )
+    
+    for dir in "${DIRS_TO_REMOVE[@]}"; do
+        if [ -d "$dir" ]; then
+            rm -rf "$dir"
+        fi
+    done
+fi
+
+exit 0

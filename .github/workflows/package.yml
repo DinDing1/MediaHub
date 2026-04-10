@@ -1,0 +1,224 @@
+name: 构建 MediaHub_FPK
+
+on:
+  workflow_dispatch:
+    inputs:
+      platform:
+        description: '构建平台'
+        required: true
+        default: 'all'
+        type: choice
+        options:
+          - all
+          - x86_64
+          - aarch64
+      push_to_fndepot:
+        description: '推送到 FnDepot 仓库'
+        required: true
+        default: true
+        type: boolean
+  push:
+    branches:
+      - main
+    paths:
+      - 'MediaHub/mediahub/manifest'
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+permissions:
+  contents: write
+
+jobs:
+  check-version:
+    runs-on: ubuntu-latest
+    outputs:
+      should_build: ${{ steps.check.outputs.should_build }}
+      version: ${{ steps.check.outputs.version }}
+      push_to_fndepot: ${{ steps.check.outputs.push_to_fndepot }}
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: 检查版本是否变化
+        id: check
+        run: |
+          VERSION=$(grep '^version=' MediaHub/mediahub/manifest | cut -d'=' -f2)
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "手动触发，执行构建"
+            echo "should_build=true" >> $GITHUB_OUTPUT
+            echo "push_to_fndepot=${{ github.event.inputs.push_to_fndepot }}" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+          
+          git diff HEAD~1 HEAD -- MediaHub/mediahub/manifest | grep -q "^+version=" && {
+            echo "版本号已更新，执行构建"
+            echo "should_build=true" >> $GITHUB_OUTPUT
+            echo "push_to_fndepot=true" >> $GITHUB_OUTPUT
+          } || {
+            echo "版本号未更新，跳过构建"
+            echo "should_build=false" >> $GITHUB_OUTPUT
+            echo "push_to_fndepot=false" >> $GITHUB_OUTPUT
+          }
+
+  prepare:
+    needs: check-version
+    if: ${{ needs.check-version.outputs.should_build == 'true' }}
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
+      version: ${{ needs.check-version.outputs.version }}
+      push_to_fndepot: ${{ needs.check-version.outputs.push_to_fndepot }}
+    steps:
+      - id: set-matrix
+        run: |
+          if [ "${{ github.event.inputs.platform }}" = "x86_64" ]; then
+            echo 'matrix={"include":[{"arch":"x86_64","runner":"ubuntu-latest","fnpack":"fnpack-1.2.1-linux-amd64","platform":"x86"}]}' >> $GITHUB_OUTPUT
+          elif [ "${{ github.event.inputs.platform }}" = "aarch64" ]; then
+            echo 'matrix={"include":[{"arch":"aarch64","runner":"ubuntu-24.04-arm","fnpack":"fnpack-1.2.1-linux-arm64","platform":"arm"}]}' >> $GITHUB_OUTPUT
+          else
+            echo 'matrix={"include":[{"arch":"x86_64","runner":"ubuntu-latest","fnpack":"fnpack-1.2.1-linux-amd64","platform":"x86"},{"arch":"aarch64","runner":"ubuntu-24.04-arm","fnpack":"fnpack-1.2.1-linux-arm64","platform":"arm"}]}' >> $GITHUB_OUTPUT
+          fi
+
+  package:
+    needs: prepare
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      matrix: ${{ fromJson(needs.prepare.outputs.matrix) }}
+
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 安装 Node.js 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: 安装依赖
+        run: npm install
+
+      - name: 构建项目
+        run: npm run build
+
+      - name: 准备打包目录
+        run: |
+          rm -rf MediaHub/mediahub/app/www
+          mkdir -p MediaHub/mediahub/app/www
+
+      - name: 复制服务端文件
+        run: |
+          cp -r .output/server MediaHub/mediahub/app/www/
+          cp -r .output/public MediaHub/mediahub/app/www/
+
+      - name: 更新平台标识
+        run: |
+          sed -i "s/^platform=.*/platform=${{ matrix.platform }}/" MediaHub/mediahub/manifest
+
+      - name: 设置 fnpack 可执行权限
+        run: chmod +x ${{ matrix.fnpack }}
+
+      - name: 构建 fpk 包
+        run: |
+          cd MediaHub
+          ../${{ matrix.fnpack }} build -d mediahub
+
+      - name: 重命名 fpk 包
+        run: |
+          mv MediaHub/mediahub.fpk MediaHub/mediahub-${{ needs.prepare.outputs.version }}-${{ matrix.arch }}.fpk
+
+      - name: 上传构建产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: fpk-${{ matrix.arch }}
+          path: MediaHub/mediahub-${{ needs.prepare.outputs.version }}-${{ matrix.arch }}.fpk
+
+  release:
+    needs: [prepare, package]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: 下载所有构建产物
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: 删除当前仓库旧版本
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION="${{ needs.prepare.outputs.version }}"
+          
+          gh release list --limit 100 --repo ${{ github.repository }} --json tagName --jq '.[].tagName' | while read tag; do
+            if [[ "$tag" == fpk-v* && "$tag" != "fpk-v$VERSION" ]]; then
+              echo "删除旧版本: $tag"
+              gh release delete "$tag" --repo ${{ github.repository }} --yes || true
+            fi
+          done
+
+      - name: 在当前仓库创建发布
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: fpk-v${{ needs.prepare.outputs.version }}
+          name: MediaHub v${{ needs.prepare.outputs.version }}
+          files: artifacts/**/*.fpk
+          generate_release_notes: false
+
+      - name: 推送到 FnDepot 仓库
+        if: ${{ needs.prepare.outputs.push_to_fndepot == 'true' }}
+        env:
+          GH_TOKEN: ${{ secrets.FNDEPOT_TOKEN }}
+        run: |
+          VERSION="${{ needs.prepare.outputs.version }}"
+          
+          echo "删除 FnDepot 旧版本..."
+          gh release list --limit 100 --repo DinDing1/FnDepot --json tagName --jq '.[].tagName' | while read tag; do
+            if [[ "$tag" == fpk-v* && "$tag" != "fpk-v$VERSION" ]]; then
+              echo "删除旧版本: $tag"
+              gh release delete "$tag" --repo DinDing1/FnDepot --yes || true
+            fi
+          done
+          
+          echo "准备文件..."
+          mkdir -p fndepot_files
+          
+          cd artifacts
+          
+          for dir in */; do
+            if [ -d "$dir" ]; then
+              arch_name=$(basename "$dir")
+              if [[ "$arch_name" == *"x86"* ]]; then
+                cp "$dir"*.fpk ../fndepot_files/mediahub.fpk
+                echo "x86 架构: mediahub.fpk"
+              elif [[ "$arch_name" == *"aarch64"* || "$arch_name" == *"arm"* ]]; then
+                cp "$dir"*.fpk ../fndepot_files/mediahub_arm.fpk
+                echo "ARM 架构: mediahub_arm.fpk"
+              fi
+            fi
+          done
+          
+          cd ../fndepot_files
+          
+          echo "上传到 FnDepot..."
+          for file in *.fpk; do
+            if [ -f "$file" ]; then
+              echo "上传: $file"
+              gh release upload "fpk-v$VERSION" "$file" --repo DinDing1/FnDepot --clobber || {
+                echo "Release 不存在，创建新的 Release"
+                gh release create "fpk-v$VERSION" "$file" \
+                  --repo DinDing1/FnDepot \
+                  --title "MediaHub v$VERSION" \
+                  --notes "MediaHub 自动构建发布
+
+          - 版本: v$VERSION
+          - 构建时间: $(date '+%Y-%m-%d %H:%M:%S')
+          - 源码: ${{ github.repository }}"
+              }
+            fi
+          done

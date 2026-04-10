@@ -1,0 +1,40 @@
+{
+  "name": "fnos-media-dashboard",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "nuxt dev",
+    "build": "nuxt build",
+    "generate": "nuxt generate",
+    "preview": "nuxt preview",
+    "postinstall": "nuxt prepare",
+    "lint": "eslint .",
+    "typecheck": "nuxt typecheck",
+    "rebuild": "npm rebuild better-sqlite3"
+  },
+  "dependencies": {
+    "@nuxt/ui": "^3.0.0",
+    "@openilink/openilink-sdk-node": "^0.4.2",
+    "@vueuse/core": "^10.9.0",
+    "@vueuse/nuxt": "^10.9.0",
+    "better-sqlite3": "^12.8.0",
+    "input": "^1.0.1",
+    "node-cron": "^3.0.3",
+    "nuxt": "^3.11.0",
+    "qrcode": "^1.5.4",
+    "telegram": "^2.26.22",
+    "text-to-svg": "^3.1.5",
+    "vue": "^3.4.21",
+    "vue-router": "^4.3.0"
+  },
+  "devDependencies": {
+    "@nuxt/eslint": "^0.3.7",
+    "@types/node": "^20.11.28",
+    "@types/node-cron": "^3.0.11",
+    "@types/qrcode": "^1.5.6",
+    "sharp": "^0.34.5",
+    "typescript": "^5.4.2",
+    "vue-tsc": "^2.0.6"
+  }
+}

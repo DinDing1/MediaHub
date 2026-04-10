@@ -1,0 +1,17 @@
+appname=mediahub
+version=1.0.6
+display_name=MediaHub
+desc=媒体库管理工具，支持云盘自动整理、自动重命名、STRM文件生成、Emby 302反代、Telegram、Wechat通知等功能
+platform=all
+source=thirdparty
+maintainer=dinding
+maintainer_url=https://github.com/dinding1/123bot
+distributor=dinding
+distributor_url=https://github.com/dinding1/123bot
+os_min_version=1.1.8
+ctl_stop=true
+install_dep_apps=nodejs_v24
+desktop_uidir=ui
+desktop_applaunchname=mediahub.Application
+service_port=3030
+checkport=true
