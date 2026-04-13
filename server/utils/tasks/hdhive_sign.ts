@@ -31,6 +31,11 @@ interface LoginResult {
 
 const DEFAULT_HDHIVE_BASE_URL = 'https://hdhive.com'
 
+function isCloudflareBlock(text: string): boolean {
+  const normalized = text.toLowerCase()
+  return normalized.includes('cloudflare') || normalized.includes('cf-wrapper') || normalized.includes('attention required')
+}
+
 function getBaseUrl(): string {
   return (getSetting('hdhive_base_url') || DEFAULT_HDHIVE_BASE_URL).replace(/\/$/, '')
 }
@@ -160,13 +165,20 @@ async function resolveLoginActionId(baseUrl: string): Promise<string> {
     },
   })
 
+  const html = await pageResp.text()
+
   if (!pageResp.ok) {
+    if (isCloudflareBlock(html)) {
+      throw new Error('访问登录页被 Cloudflare 拦截，当前环境无法建立登录态')
+    }
     throw new Error(`打开登录页失败: HTTP ${pageResp.status}`)
   }
 
-  const html = await pageResp.text()
   const chunkMatch = html.match(/\/_next\/static\/chunks\/app\/\(auth\)\/login\/page-[^"']+\.js/)
   if (!chunkMatch) {
+    if (isCloudflareBlock(html)) {
+      throw new Error('访问登录页被 Cloudflare 拦截，当前环境无法建立登录态')
+    }
     throw new Error('未找到登录页脚本资源')
   }
 
@@ -180,13 +192,20 @@ async function resolveLoginActionId(baseUrl: string): Promise<string> {
     },
   })
 
+  const js = await jsResp.text()
+
   if (!jsResp.ok) {
+    if (isCloudflareBlock(js)) {
+      throw new Error('访问登录脚本被 Cloudflare 拦截，当前环境无法建立登录态')
+    }
     throw new Error(`读取登录脚本失败: HTTP ${jsResp.status}`)
   }
 
-  const js = await jsResp.text()
   const actionMatch = js.match(/createServerReference\)\("([a-f0-9]+)"[\s\S]*?"login"\)/i)
   if (!actionMatch) {
+    if (isCloudflareBlock(js)) {
+      throw new Error('访问登录脚本被 Cloudflare 拦截，当前环境无法建立登录态')
+    }
     throw new Error('未解析到登录 action id')
   }
 
@@ -208,8 +227,17 @@ async function loginWithPassword(username: string, password: string): Promise<Lo
     })
 
     mergeCookies(cookieJar, loginPageResp)
+    const loginPageText = await loginPageResp.text()
 
     if (!loginPageResp.ok) {
+      if (isCloudflareBlock(loginPageText)) {
+        return {
+          success: false,
+          message: '访问登录页被 Cloudflare 拦截，当前环境无法建立登录态',
+          cookieJar,
+        }
+      }
+
       return {
         success: false,
         message: `打开登录页失败: HTTP ${loginPageResp.status}`,
@@ -243,6 +271,14 @@ async function loginWithPassword(username: string, password: string): Promise<Lo
       return {
         success: true,
         message: '登录成功',
+        cookieJar,
+      }
+    }
+
+    if (isCloudflareBlock(text)) {
+      return {
+        success: false,
+        message: '访问登录接口被 Cloudflare 拦截，当前环境无法建立登录态',
         cookieJar,
       }
     }
