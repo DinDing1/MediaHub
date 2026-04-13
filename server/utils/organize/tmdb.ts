@@ -96,10 +96,64 @@ function hasCjk(text: string): boolean {
   return /[\u4e00-\u9fff\u3040-\u30ff\uac00-\ud7af]/.test(text)
 }
 
+function getTranslationTitle(translation: any): string | null {
+  const candidates = [
+    translation?.data?.title,
+    translation?.data?.name,
+    translation?.data?.original_title,
+    translation?.data?.original_name,
+  ]
+
+  for (const candidate of candidates) {
+    if (typeof candidate === 'string') {
+      const value = candidate.trim()
+      if (value && hasCjk(value)) {
+        return value
+      }
+    }
+  }
+
+  return null
+}
+
+function getChineseTitleFromTranslations(translations: any): string | null {
+  const entries = Array.isArray(translations?.translations) ? translations.translations : []
+  if (!entries.length) {
+    return null
+  }
+
+  const sortedEntries = [...entries].sort((a: any, b: any) => {
+    const getPriority = (entry: any): number => {
+      const lang = typeof entry?.iso_639_1 === 'string' ? entry.iso_639_1 : ''
+      const region = typeof entry?.iso_3166_1 === 'string' ? entry.iso_3166_1 : ''
+
+      if (lang === 'zh' && region === 'CN') return 0
+      if (lang === 'zh' && region === 'TW') return 1
+      if (lang === 'zh' && region === 'HK') return 2
+      if (lang === 'zh') return 3
+      if (region === 'CN') return 4
+      if (region === 'TW') return 5
+      if (region === 'HK') return 6
+      return 7
+    }
+
+    return getPriority(a) - getPriority(b)
+  })
+
+  for (const entry of sortedEntries) {
+    const title = getTranslationTitle(entry)
+    if (title) {
+      return title
+    }
+  }
+
+  return null
+}
+
 /**
  * 标准化查询字符串
  * 移除特殊字符，保留字母、数字、中文和连字符
- * 
+ *
  * @param query - 原始查询字符串
  * @returns 标准化后的查询字符串
  */
@@ -241,7 +295,7 @@ export async function getMovieDetails(movieId: number): Promise<TMDBDetails | nu
 
   const baseUrl = getTmdbBaseUrl()
   const imageBaseUrl = getTmdbImageBaseUrl()
-  const url = `${baseUrl}/movie/${movieId}?api_key=${apiKey}&language=zh-CN&append_to_response=credits,alternative_titles`
+  const url = `${baseUrl}/movie/${movieId}?api_key=${apiKey}&language=zh-CN&append_to_response=credits,alternative_titles,translations`
 
   try {
     const response = await fetch(url, { method: 'GET' })
@@ -269,8 +323,12 @@ export async function getMovieDetails(movieId: number): Promise<TMDBDetails | nu
     const isOriginalEnglish = !hasCjk(titleEn)
 
     if (isOriginalEnglish) {
+      const translatedCnTitle = getChineseTitleFromTranslations(data.translations)
+
       if (data.title && data.title !== data.original_title && hasCjk(data.title)) {
         titleCn = data.title
+      } else if (translatedCnTitle) {
+        titleCn = translatedCnTitle
       } else if (data.alternative_titles?.titles) {
         const cnTitle = data.alternative_titles.titles.find(
           (t: any) => t.iso_3166_1 === 'CN' || t.iso_3166_1 === 'TW' || t.iso_3166_1 === 'HK'
@@ -330,7 +388,7 @@ export async function getTvDetails(tvId: number): Promise<TMDBDetails | null> {
 
   const baseUrl = getTmdbBaseUrl()
   const imageBaseUrl = getTmdbImageBaseUrl()
-  const url = `${baseUrl}/tv/${tvId}?api_key=${apiKey}&language=zh-CN&append_to_response=credits,alternative_titles`
+  const url = `${baseUrl}/tv/${tvId}?api_key=${apiKey}&language=zh-CN&append_to_response=credits,alternative_titles,translations`
 
   try {
     const response = await fetch(url, { method: 'GET' })
@@ -358,8 +416,12 @@ export async function getTvDetails(tvId: number): Promise<TMDBDetails | null> {
     const isOriginalEnglish = !hasCjk(titleEn)
 
     if (isOriginalEnglish) {
+      const translatedCnTitle = getChineseTitleFromTranslations(data.translations)
+
       if (data.name && data.name !== data.original_name && hasCjk(data.name)) {
         titleCn = data.name
+      } else if (translatedCnTitle) {
+        titleCn = translatedCnTitle
       } else if (data.alternative_titles?.results) {
         const cnTitle = data.alternative_titles.results.find(
           (t: any) => t.iso_3166_1 === 'CN' || t.iso_3166_1 === 'TW' || t.iso_3166_1 === 'HK'

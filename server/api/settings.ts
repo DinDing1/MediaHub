@@ -32,7 +32,9 @@ export default defineEventHandler(async (event) => {
           strmServerUrl: settings.strm_server_url || '',
           fnosCookie: settings.fnos_cookie || '',
           gladosCookie: settings.glados_cookie || '',
-          hdhiveCookie: settings.hdhive_cookie || '',
+          hdhiveUsername: settings.hdhive_username || '',
+          hdhivePassword: settings.hdhive_password || '',
+          hdhiveBaseUrl: settings.hdhive_base_url || '',
           renameMovieTemplate: settings.rename_movie_template || '',
           renameTvTemplate: settings.rename_tv_template || '',
           classificationStrategy: settings.classification_strategy || '',
@@ -176,10 +178,18 @@ export default defineEventHandler(async (event) => {
         log.success('配置', 'GlaDOS Cookie已保存')
       }
 
-      // 保存影巢Cookie
-      if (body.hdhiveCookie !== undefined) {
-        setSetting('hdhive_cookie', body.hdhiveCookie.trim())
-        log.success('配置', '影巢Cookie已保存')
+      // 保存影巢账号密码配置
+      if (body.hdhiveUsername !== undefined) {
+        setSetting('hdhive_username', body.hdhiveUsername.trim())
+        log.success('配置', '影巢账号已保存')
+      }
+      if (body.hdhivePassword !== undefined) {
+        setSetting('hdhive_password', body.hdhivePassword.trim())
+        log.success('配置', '影巢密码已保存')
+      }
+      if (body.hdhiveBaseUrl !== undefined) {
+        setSetting('hdhive_base_url', body.hdhiveBaseUrl.trim())
+        log.success('配置', '影巢站点地址已保存')
       }
 
       // 保存AI识别配置
