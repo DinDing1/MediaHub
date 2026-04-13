@@ -30,6 +30,3 @@ Thumbs.db
 *.log
 *.tmp
 *.temp
-
-# 本地同步脚本
-sync-main.ps1
