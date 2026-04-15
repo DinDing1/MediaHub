@@ -13,8 +13,7 @@ export interface SettingsData {
   strmServerUrl?: string
   fnosCookie?: string
   gladosCookie?: string
-  hdhiveUsername?: string
-  hdhivePassword?: string
+  hdhiveCookie?: string
   hdhiveBaseUrl?: string
   renameMovieTemplate?: string
   renameTvTemplate?: string

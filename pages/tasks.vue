@@ -269,24 +269,14 @@
               </div>
               <div class="modal-body">
                 <div class="form-group">
-                  <label class="form-label" :class="{ dark: isDark }">影巢账号</label>
-                  <input
-                    v-model="hdhiveUsername"
-                    type="text"
-                    class="form-input"
+                  <label class="form-label" :class="{ dark: isDark }">影巢 Cookie</label>
+                  <textarea
+                    v-model="hdhiveCookie"
+                    class="form-textarea"
                     :class="{ dark: isDark }"
-                    placeholder="请输入影巢登录账号"
-                  />
-                </div>
-                <div class="form-group form-group-spaced">
-                  <label class="form-label" :class="{ dark: isDark }">影巢密码</label>
-                  <input
-                    v-model="hdhivePassword"
-                    type="password"
-                    class="form-input"
-                    :class="{ dark: isDark }"
-                    placeholder="请输入影巢登录密码"
-                  />
+                    placeholder="请输入影巢登录Cookie&#10;需要包含 token 和 csrf_access_token"
+                    rows="4"
+                  ></textarea>
                 </div>
                 <div class="form-group form-group-spaced">
                   <label class="form-label" :class="{ dark: isDark }">站点地址</label>
@@ -298,7 +288,7 @@
                     placeholder="留空则使用默认 https://hdhive.com"
                   />
                   <p class="form-hint" :class="{ dark: isDark }">
-                    系统将使用账号密码自动登录后再执行签到
+                    请输入浏览器中已登录影巢的 Cookie，系统将直接使用 Cookie 执行签到
                   </p>
                 </div>
               </div>
@@ -675,8 +665,7 @@ async function saveGladosConfig() {
 }
 
 const showHdhiveConfigModal = ref(false)
-const hdhiveUsername = ref('')
-const hdhivePassword = ref('')
+const hdhiveCookie = ref('')
 const hdhiveBaseUrl = ref('')
 const hdhiveSaving = ref(false)
 
@@ -748,8 +737,7 @@ async function openHdhiveConfig() {
   try {
     const response = await loadSettings()
     if (response.success && response.data) {
-      hdhiveUsername.value = response.data.hdhiveUsername || ''
-      hdhivePassword.value = response.data.hdhivePassword || ''
+      hdhiveCookie.value = response.data.hdhiveCookie || ''
       hdhiveBaseUrl.value = response.data.hdhiveBaseUrl || ''
     }
   } catch (e) {
@@ -768,16 +756,14 @@ async function saveHdhiveConfig() {
     const response = await $fetch('/api/settings', {
       method: 'POST',
       body: {
-        hdhiveUsername: hdhiveUsername.value.trim(),
-        hdhivePassword: hdhivePassword.value.trim(),
+        hdhiveCookie: hdhiveCookie.value.trim(),
         hdhiveBaseUrl: hdhiveBaseUrl.value.trim()
       }
     }) as any
 
     if (response.success) {
       updateSettingsData({
-        hdhiveUsername: hdhiveUsername.value.trim(),
-        hdhivePassword: hdhivePassword.value.trim(),
+        hdhiveCookie: hdhiveCookie.value.trim(),
         hdhiveBaseUrl: hdhiveBaseUrl.value.trim()
       })
       showToast('影巢配置已保存', 'success')
