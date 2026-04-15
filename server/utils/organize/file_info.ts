@@ -16,6 +16,43 @@
 
 import type { FileInfo } from './types'
 
+const SAFE_TITLE_ABBREVIATIONS = new Set([
+  'FBI',
+  'CSI',
+  'NCIS',
+  'SWAT',
+  'SEAL',
+  'CIA',
+  'NYPD',
+  'LAPD',
+])
+
+function isSuspiciousTrailingToken(token: string, totalTokens: number): boolean {
+  if (totalTokens < 3) {
+    return false
+  }
+
+  if (!/^[A-Z]{3,6}$/.test(token)) {
+    return false
+  }
+
+  return !SAFE_TITLE_ABBREVIATIONS.has(token)
+}
+
+function stripTrailingNoiseTokens(text: string): string {
+  const tokens = text.split(/\s+/).filter(Boolean)
+
+  while (tokens.length > 0) {
+    const lastToken = tokens[tokens.length - 1]
+    if (!lastToken || !isSuspiciousTrailingToken(lastToken, tokens.length)) {
+      break
+    }
+    tokens.pop()
+  }
+
+  return tokens.join(' ')
+}
+
 /**
  * 电视剧集数识别正则表达式模式列表
  * 支持多种常见的季集格式：
@@ -105,21 +142,21 @@ function detectSeasonOnly(fileName: string): number | null {
  */
 function cleanQuery(text: string): string {
   let cleaned = text
-  
+
   cleaned = cleaned.replace(/\[[^\]]*\]/g, ' ')
   cleaned = cleaned.replace(/\{[^}]*\}/g, ' ')
   cleaned = cleaned.replace(/\([^)]*\)/g, ' ')
-  
+
   const tvPattern = cleaned.match(/^(.+?)[.\s\-_]*S\d{1,2}E\d{1,3}/i)
   if (tvPattern && tvPattern[1]) {
     cleaned = tvPattern[1]
   }
-  
+
   cleaned = cleaned.replace(/S\d{1,2}E\d{1,3}/gi, ' ')
   cleaned = cleaned.replace(/\d{1,2}x\d{1,3}/gi, ' ')
   cleaned = cleaned.replace(/第\d+集/g, ' ')
   cleaned = cleaned.replace(/EP?\d{1,3}/gi, ' ')
-  
+
   cleaned = cleaned.replace(/\b(2160p|1080p|720p|480p|360p|4K|8K|2K|UHD|HD|SD)\b/gi, ' ')
   cleaned = cleaned.replace(/\b(WEB-?DL|WEBRip|BluRay|BDRip|HDTV|DVDRip|REMUX)\b/gi, ' ')
   cleaned = cleaned.replace(/\b(H\.?26[45]|X\.?26[45]|HEVC|AVC|AV1)\b/gi, ' ')
@@ -127,17 +164,17 @@ function cleanQuery(text: string): string {
   cleaned = cleaned.replace(/\b(DV|HDR10\+|HDR10P|HDR10|HDR|HLG|SDR|Vivid)\b/gi, ' ')
   cleaned = cleaned.replace(/\b(Netflix|Amazon|Disney\+|HBO|Hulu|AppleTV|AMZN|NF|MAX|HMAX|DSNP|ATVP|MAXPLUS|Bilibili|CR|Funimation|iT|iTunes)\b/gi, ' ')
   cleaned = cleaned.replace(/\b\d+(bit|fps)\b/gi, ' ')
-  cleaned = cleaned.replace(/\b\d+\.\d+\b/g, ' ')
+  cleaned = cleaned.replace(/\b\d{1,2}\.\d{1,2}\b/g, ' ')
   cleaned = cleaned.replace(/\btmdb[=＝]?\d+\b/gi, ' ')
   cleaned = cleaned.replace(/\b(tmdb|tmdbid)\s*[=－-]?\s*\d+\b/gi, ' ')
   cleaned = cleaned.replace(/\b(HiveWeb|RARBG|YTS|ETTV)\b/gi, ' ')
   cleaned = cleaned.replace(/@[A-Za-z0-9]+/gi, ' ')
   cleaned = cleaned.replace(/\bP\d+\b/g, ' ')
-  
+
   cleaned = cleaned.replace(/[-][A-Za-z]+$/g, ' ')
   cleaned = cleaned.replace(/[._\-\[\]\(\)\{\}]/g, ' ')
   cleaned = cleaned.replace(/\s+/g, ' ').trim()
-  
+
   cleaned = cleaned.replace(/\b(DDP|DD|DTS|AAC|AC3|FLAC|LPCM|PCM|TrueHD|Atmos|H|X|HEVC|AVC|AV1|HQ|UHD|WEB|DL|MA)\b/gi, ' ')
   cleaned = cleaned.replace(/\bDDP\d+\b/gi, ' ')
   cleaned = cleaned.replace(/\bDTS\d+\b/gi, ' ')
@@ -155,7 +192,8 @@ function cleanQuery(text: string): string {
   cleaned = cleaned.replace(/\bAV1\d+\b/gi, ' ')
   cleaned = cleaned.replace(/\bS\d{2,}\b/gi, ' ')
   cleaned = cleaned.replace(/\s+/g, ' ').trim()
-  
+  cleaned = stripTrailingNoiseTokens(cleaned)
+
   return cleaned
 }
 
@@ -278,16 +316,16 @@ export function extractKeyInfo(fileName: string, folderFiles?: string[]): FileIn
   year = extractYear(base)
   
   const cleaned = cleanQuery(base)
-  
+
   const parts = cleaned.split(/\s+/).filter(p => p.length > 0)
   const titleParts: string[] = []
-  
+
   for (const part of parts) {
     if (/^\d{4}$/.test(part) && !year) {
       year = part
-      break
+      continue
     }
-    if (/^\d+$/.test(part)) {
+    if (year && part === year) {
       continue
     }
     if (/^(p|fps|bit|k|hd|uhd|sdr|hdr|dv|atmos|truehd|flac|aac|ac3|dd|ddp|dts|hevc|avc|h264|h265|x264|x265|av1|web|dl|bluray|remux|hdtv|dvd|netflix|amazon|disney|hbo|hulu|apple|amzn|nf|max|hmax|dsnp|atvp)$/i.test(part)) {

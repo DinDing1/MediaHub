@@ -24,6 +24,7 @@ const AI_INVOKE_EXACT_YEAR_SCORE = 130
 
 function normalizeCompareText(text: string): string {
   return text
+    .replace(/[’']/g, '')
     .toLowerCase()
     .replace(/[^a-z0-9\u4e00-\u9fff\s]/g, ' ')
     .replace(/\s+/g, ' ')
@@ -115,6 +116,15 @@ type AIRecognizeCandidate = {
 type AIResolveResult = {
   details: TMDBDetails
   matchedBy: 'tmdbId' | 'title' | 'titleCn'
+}
+
+type AIHintConsistencyVerdict = 'consistent' | 'uncertain' | 'inconsistent'
+
+type AIHintConsistencyResult = {
+  verdict: AIHintConsistencyVerdict
+  bestCoverage: number
+  exactMatch: boolean
+  reason: string
 }
 
 function normalizeYear(year?: string | null): string {
@@ -273,15 +283,25 @@ function isAIResultConsistentWithHints(
     fallbackQuery?: string | null
     year?: string | null
   }
-): boolean {
-  const hintTitles = [hints.title, hints.fallbackQuery].filter(Boolean)
+): AIHintConsistencyResult {
+  const hintTitles = [hints.title, hints.fallbackQuery].filter((title): title is string => Boolean(title))
   if (hintTitles.length === 0) {
-    return true
+    return {
+      verdict: 'consistent',
+      bestCoverage: 1,
+      exactMatch: true,
+      reason: 'missing_hints'
+    }
   }
 
   const aiTitles = [aiResult.title, aiResult.titleCn].filter(Boolean)
   if (aiTitles.length === 0) {
-    return false
+    return {
+      verdict: 'inconsistent',
+      bestCoverage: 0,
+      exactMatch: false,
+      reason: 'missing_ai_titles'
+    }
   }
 
   const hintNormalizedTitles = hintTitles
@@ -296,41 +316,51 @@ function isAIResultConsistentWithHints(
     aiNormalizedTitles.some(aiTitle => aiTitle === hintTitle)
   )
 
-  if (!exactNormalizedMatch) {
-    const hintTokenGroups = hintTitles
-      .map(title => getComparableTitleTokens(title!))
-      .filter(tokens => tokens.length > 0)
-
-    const aiTokenGroups = aiTitles
-      .map(title => getComparableTitleTokens(title))
-      .filter(tokens => tokens.length > 0)
-
-    if (hintTokenGroups.length === 0 || aiTokenGroups.length === 0) {
-      return false
-    }
-
-    const bestCoverage = hintTokenGroups.reduce((best, hintTokens) => {
-      const maxGroupCoverage = aiTokenGroups.reduce((groupBest, aiTokens) => {
-        const matchedCount = hintTokens.filter(token => aiTokens.includes(token)).length
-        return Math.max(groupBest, matchedCount / hintTokens.length)
-      }, 0)
-
-      return Math.max(best, maxGroupCoverage)
-    }, 0)
-
-    const hintTokenCount = Math.max(...hintTokenGroups.map(tokens => tokens.length), 0)
-    if (bestCoverage < (hintTokenCount <= 2 ? 1 : 0.7)) {
-      return false
-    }
-  }
-
   const hintYear = normalizeYear(hints.year)
   const aiYear = normalizeYear(aiResult.year)
   if (hintYear && aiYear && hintYear !== aiYear) {
-    return false
+    return {
+      verdict: 'inconsistent',
+      bestCoverage: exactNormalizedMatch ? 1 : 0,
+      exactMatch: exactNormalizedMatch,
+      reason: 'year_conflict'
+    }
   }
 
-  return true
+  if (exactNormalizedMatch) {
+    return {
+      verdict: 'consistent',
+      bestCoverage: 1,
+      exactMatch: true,
+      reason: 'exact_normalized_match'
+    }
+  }
+
+  const bestCoverage = getBestTokenCoverage(hintTitles, aiTitles)
+  if (bestCoverage >= 0.85) {
+    return {
+      verdict: 'consistent',
+      bestCoverage,
+      exactMatch: false,
+      reason: 'high_token_coverage'
+    }
+  }
+
+  if (bestCoverage >= 0.45) {
+    return {
+      verdict: 'uncertain',
+      bestCoverage,
+      exactMatch: false,
+      reason: 'partial_token_overlap'
+    }
+  }
+
+  return {
+    verdict: 'inconsistent',
+    bestCoverage,
+    exactMatch: false,
+    reason: 'low_token_overlap'
+  }
 }
 
 function shouldTrustAITmdbId(
@@ -509,8 +539,11 @@ async function tryAIRecognize(
     return null
   }
 
-  if (!isAIResultConsistentWithHints(aiResult, hints)) {
-    log.warn('整理', `AI识别结果与已解析标题不一致，忽略本次AI结果: title="${aiResult.title}", titleCn="${aiResult.titleCn}", year=${aiResult.year}`)
+  const consistency = isAIResultConsistentWithHints(aiResult, hints)
+  log.info('整理', `AI一致性检查: verdict=${consistency.verdict}, reason=${consistency.reason}, coverage=${consistency.bestCoverage.toFixed(2)}, parsedTitle="${hints.title || ''}", fallbackQuery="${hints.fallbackQuery || ''}"`)
+
+  if (consistency.verdict === 'inconsistent') {
+    log.warn('整理', `AI识别结果与已解析标题明显冲突，忽略本次AI结果: title="${aiResult.title}", titleCn="${aiResult.titleCn}", year=${aiResult.year}, coverage=${consistency.bestCoverage.toFixed(2)}, reason=${consistency.reason}`)
     return null
   }
 
@@ -521,6 +554,9 @@ async function tryAIRecognize(
     log.info('整理', `优先使用AI返回的TMDB ID: ${aiResult.tmdbId}`)
     const details = await getMediaDetails(aiResult.tmdbId, mediaType)
     if (details && shouldTrustAITmdbId(aiResult, details, hints.year)) {
+      if (consistency.verdict === 'uncertain') {
+        log.info('整理', `AI一致性存疑但TMDB ID校验通过，接受AI结果: ${details.title} (${details.year}) [${mediaType}] TMDB=${details.id}`)
+      }
       return { details, mediaType }
     }
     if (details) {
@@ -532,7 +568,15 @@ async function tryAIRecognize(
 
   const resolved = await resolveAIResultToDetails(aiResult, mediaType, hints.year)
   if (resolved) {
+    if (consistency.verdict === 'uncertain') {
+      log.info('整理', `AI一致性存疑但TMDB落地成功，接受AI结果: ${resolved.details.title} (${resolved.details.year}) [${mediaType}] TMDB=${resolved.details.id}`)
+    }
     return { details: resolved.details, mediaType }
+  }
+
+  if (consistency.verdict === 'uncertain') {
+    log.warn('整理', `AI与已解析标题存在差异，且未能落地兼容TMDB结果，忽略本次AI结果: title="${aiResult.title}", titleCn="${aiResult.titleCn}", year=${aiResult.year}`)
+    return null
   }
 
   log.warn('整理', `AI候选已识别成功，但未能在TMDB中找到兼容结果: title="${aiResult.title}", titleCn="${aiResult.titleCn}", year=${aiResult.year}, mediaType=${mediaType}`)
@@ -583,6 +627,7 @@ export async function recognizeFile(
   let techInfo: TechInfo = extractTechInfo(actualFileName, groups)
 
   log.info('整理', `提取信息: 标题="${fileInfo.title}", 年份=${fileInfo.year}, 类型=${fileInfo.mediaType}, 季=${fileInfo.season}, 集=${fileInfo.episode}${fileInfo.totalEpisodes ? `, 总集数=${fileInfo.totalEpisodes}` : ''}, TMDB ID=${fileInfo.tmdbId}`)
+  log.info('整理', `解析搜索词: title="${fileInfo.title}", fallbackQuery="${fileInfo.fallbackQuery || ''}"`)
   
   if (folderFiles && folderFiles.length > 0) {
     log.info('整理', `文件夹内文件列表: ${folderFiles.slice(0, 5).join(', ')}${folderFiles.length > 5 ? '...' : ''} (共${folderFiles.length}个)`)

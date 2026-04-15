@@ -37,7 +37,7 @@ start_process() {
     MEDIA_PATH="${MEDIA_PATH}" \
     NITRO_PRESET=node-server \
     PORT=3030 \
-    node ${TRIM_PKGDIR}/www/server/index.mjs &
+    bash -c 'exec -a MediaHub node "$1"' _ "${TRIM_PKGDIR}/www/server/index.mjs" &
     
     printf "%s" "$!" > ${PID_FILE}
     return 0

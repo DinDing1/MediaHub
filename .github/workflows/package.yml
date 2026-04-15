@@ -21,7 +21,7 @@ on:
     branches:
       - main
     paths:
-      - 'MediaHub/mediahub/manifest'
+      - 'config/version.json'
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
@@ -45,7 +45,7 @@ jobs:
       - name: 检查版本是否变化
         id: check
         run: |
-          VERSION=$(grep '^version=' MediaHub/mediahub/manifest | cut -d'=' -f2)
+          VERSION=$(node -e "process.stdout.write(JSON.parse(require('fs').readFileSync('config/version.json', 'utf8')).version)")
           echo "version=$VERSION" >> $GITHUB_OUTPUT
 
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
@@ -55,15 +55,17 @@ jobs:
             exit 0
           fi
 
-          git diff HEAD~1 HEAD -- MediaHub/mediahub/manifest | grep -q "^+version=" && {
+          PREVIOUS_VERSION=$(git show HEAD~1:config/version.json 2>/dev/null | node -e "let input=''; process.stdin.on('data', chunk => input += chunk); process.stdin.on('end', () => { try { process.stdout.write(JSON.parse(input).version || '') } catch { process.stdout.write('') } })")
+
+          if [ "$VERSION" != "$PREVIOUS_VERSION" ]; then
             echo "版本号已更新，执行构建"
             echo "should_build=true" >> $GITHUB_OUTPUT
             echo "push_to_fndepot=true" >> $GITHUB_OUTPUT
-          } || {
+          else
             echo "版本号未更新，跳过构建"
             echo "should_build=false" >> $GITHUB_OUTPUT
             echo "push_to_fndepot=false" >> $GITHUB_OUTPUT
-          }
+          fi
 
   prepare:
     needs: check-version
@@ -115,8 +117,9 @@ jobs:
           cp -r .output/server MediaHub/mediahub/app/www/
           cp -r .output/public MediaHub/mediahub/app/www/
 
-      - name: 更新平台标识
+      - name: 同步 manifest 版本与平台
         run: |
+          sed -i "s/^version=.*/version=${{ needs.prepare.outputs.version }}/" MediaHub/mediahub/manifest
           sed -i "s/^platform=.*/platform=${{ matrix.platform }}/" MediaHub/mediahub/manifest
 
       - name: 设置 fnpack 可执行权限
