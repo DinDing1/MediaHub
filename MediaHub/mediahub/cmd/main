@@ -24,17 +24,21 @@ start_process() {
     mkdir -p "${DATA_DIR}"
     mkdir -p "${TRIM_PKGVAR}/logs"
 
-
-    (
-        cd "${TRIM_PKGDIR}/www/server" || exit 1
+    exec -a "MediaHub" /bin/bash -c '
+        cd "$1" || exit 1
         export NODE_ENV=production
-        export TRIM_PKGVAR="${TRIM_PKGVAR}"
-        export TRIM_PKGDIR="${TRIM_PKGDIR}"
-        export MEDIA_PATH="${MEDIA_PATH}"
+        export TRIM_PKGVAR="$2"
+        export TRIM_PKGDIR="$3"
+        export MEDIA_PATH="$4"
         export NITRO_PRESET=node-server
         export PORT=3030
-        exec -a "MediaHub" node "${TRIM_PKGDIR}/www/server/index.mjs"
-    ) &
+        exec -a "MediaHub" node "$5"
+    ' _ \
+        "${TRIM_PKGDIR}/www/server" \
+        "${TRIM_PKGVAR}" \
+        "${TRIM_PKGDIR}" \
+        "${MEDIA_PATH}" \
+        "${TRIM_PKGDIR}/www/server/index.mjs" >> "${TRIM_PKGVAR}/logs/app.log" 2>&1 &
 
     printf "%s" "$!" > ${PID_FILE}
     return 0
@@ -43,7 +47,7 @@ start_process() {
 stop_process() {
     if [ -r "${PID_FILE}" ]; then
         pid=$(head -n 1 "${PID_FILE}" | tr -d '[:space:]')
-        
+
         if ! check_process "${pid}"; then
             rm -f "${PID_FILE}"
             return
@@ -85,7 +89,7 @@ status() {
             return 0
         else
             rm -f "${PID_FILE}"
-        fi    
+        fi
     fi
 
     return 1
@@ -99,9 +103,9 @@ stop)
     stop_process
     ;;
 status)
-    if status; then 
+    if status; then
         exit 0
-    else 
+    else
         exit 3
     fi
     ;;
@@ -109,3 +113,4 @@ status)
     exit 1
     ;;
 esac
+

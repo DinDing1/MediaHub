@@ -116,11 +116,12 @@ function ensureAuthorizedMediaPath(targetPath: string): string {
 
   const accessiblePaths = parseAccessiblePaths()
   if (accessiblePaths.length === 0) {
-    throw new Error('当前未检测到飞牛外部文件授权目录，请先在应用设置中为目标目录授予读写权限')
+    log.warn('STRM', `未检测到 TRIM_DATA_ACCESSIBLE_PATHS，改为按目录实际写权限判断: ${normalizedTargetPath}`)
+    return normalizedTargetPath
   }
 
   if (!accessiblePaths.some(basePath => isSubPath(normalizedTargetPath, basePath))) {
-    throw new Error(`媒体目录未获得飞牛外部文件访问权限: ${normalizedTargetPath}，请在应用设置中为该目录授予读写权限`)
+    log.warn('STRM', `目标目录未出现在 TRIM_DATA_ACCESSIBLE_PATHS 中，改为按目录实际写权限判断: ${normalizedTargetPath}`)
   }
 
   return normalizedTargetPath
