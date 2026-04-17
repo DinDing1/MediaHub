@@ -23,22 +23,19 @@ start_process() {
 
     mkdir -p "${DATA_DIR}"
     mkdir -p "${TRIM_PKGVAR}/logs"
-    
-    if [ -n "${MEDIA_PATH}" ]; then
-        mkdir -p "${MEDIA_PATH}"
-        chmod 777 "${MEDIA_PATH}"
-    fi
-    
-    cd "${TRIM_PKGDIR}/www/server"
-    
-    NODE_ENV=production \
-    TRIM_PKGVAR="${TRIM_PKGVAR}" \
-    TRIM_PKGDIR="${TRIM_PKGDIR}" \
-    MEDIA_PATH="${MEDIA_PATH}" \
-    NITRO_PRESET=node-server \
-    PORT=3030 \
-    bash -c 'exec -a MediaHub node "$1"' _ "${TRIM_PKGDIR}/www/server/index.mjs" &
-    
+
+
+    (
+        cd "${TRIM_PKGDIR}/www/server" || exit 1
+        export NODE_ENV=production
+        export TRIM_PKGVAR="${TRIM_PKGVAR}"
+        export TRIM_PKGDIR="${TRIM_PKGDIR}"
+        export MEDIA_PATH="${MEDIA_PATH}"
+        export NITRO_PRESET=node-server
+        export PORT=3030
+        exec -a "MediaHub" node "${TRIM_PKGDIR}/www/server/index.mjs"
+    ) &
+
     printf "%s" "$!" > ${PID_FILE}
     return 0
 }

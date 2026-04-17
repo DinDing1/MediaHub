@@ -24,8 +24,8 @@
  * @module strm_115
  */
 
-import { existsSync, mkdirSync, writeFileSync } from 'fs'
-import { join, extname, basename } from 'path'
+import { accessSync, constants, existsSync, mkdirSync, writeFileSync } from 'fs'
+import { join, extname, basename, resolve } from 'path'
 import { getSetting } from '../db'
 import { log } from '../logger'
 import { resolvePathToId } from '../organize/fs_115'
@@ -88,6 +88,58 @@ interface DirInfo {
 /** STRM 文件输出目录缓存 */
 let mediaPath: string | null = null
 
+function normalizePath(targetPath: string): string {
+  return resolve(targetPath).replace(/[\\/]+$/, '')
+}
+
+function parseAccessiblePaths(): string[] {
+  const raw = process.env.TRIM_DATA_ACCESSIBLE_PATHS?.trim()
+  if (!raw) return []
+
+  return raw
+    .split(/[:;\n]+/)
+    .map(item => item.trim())
+    .filter(Boolean)
+    .map(normalizePath)
+}
+
+function isSubPath(targetPath: string, basePath: string): boolean {
+  return targetPath === basePath || targetPath.startsWith(`${basePath}/`) || targetPath.startsWith(`${basePath}\\`)
+}
+
+function ensureAuthorizedMediaPath(targetPath: string): string {
+  const normalizedTargetPath = normalizePath(targetPath)
+
+  if (!process.env.MEDIA_PATH) {
+    return normalizedTargetPath
+  }
+
+  const accessiblePaths = parseAccessiblePaths()
+  if (accessiblePaths.length === 0) {
+    throw new Error('当前未检测到飞牛外部文件授权目录，请先在应用设置中为目标目录授予读写权限')
+  }
+
+  if (!accessiblePaths.some(basePath => isSubPath(normalizedTargetPath, basePath))) {
+    throw new Error(`媒体目录未获得飞牛外部文件访问权限: ${normalizedTargetPath}，请在应用设置中为该目录授予读写权限`)
+  }
+
+  return normalizedTargetPath
+}
+
+function ensureWritableDirectory(targetPath: string): void {
+  try {
+    mkdirSync(targetPath, { recursive: true })
+  } catch (error: any) {
+    throw new Error(`无法创建媒体目录: ${targetPath}，请确认目录已授权且应用用户可写 (${error.message})`)
+  }
+
+  try {
+    accessSync(targetPath, constants.W_OK)
+  } catch (error: any) {
+    throw new Error(`媒体目录不可写: ${targetPath}，请在应用设置中授予读写权限并确认应用用户可写 (${error.message})`)
+  }
+}
+
 /**
  * 获取 STRM 文件输出目录
  * 优先级：
@@ -97,16 +149,9 @@ let mediaPath: string | null = null
  */
 function getMediaPath(): string {
   if (!mediaPath) {
-    if (process.env.MEDIA_PATH) {
-      mediaPath = process.env.MEDIA_PATH
-    } else if (process.env.TRIM_PKGVAR) {
-      mediaPath = join(process.env.TRIM_PKGVAR, 'media')
-    } else {
-      mediaPath = join(process.cwd(), 'media')
-    }
-    if (!existsSync(mediaPath)) {
-      mkdirSync(mediaPath, { recursive: true })
-    }
+    const configuredPath = process.env.MEDIA_PATH || (process.env.TRIM_PKGVAR ? join(process.env.TRIM_PKGVAR, 'media') : join(process.cwd(), 'media'))
+    mediaPath = ensureAuthorizedMediaPath(configuredPath)
+    ensureWritableDirectory(mediaPath)
   }
   return mediaPath
 }
@@ -463,9 +508,17 @@ export async function generateStrmFiles(): Promise<StrmGenerateResult> {
   }
 
   // 准备输出目录
-  const outputDir = getMediaPath()
-  if (!existsSync(outputDir)) {
-    mkdirSync(outputDir, { recursive: true })
+  let outputDir: string
+  try {
+    outputDir = getMediaPath()
+  } catch (error: any) {
+    return {
+      success: false,
+      totalFiles: videoFiles.length,
+      generatedFiles: 0,
+      skippedFiles: 0,
+      error: error.message || 'STRM 输出目录校验失败'
+    }
   }
 
   let generatedCount = 0
@@ -492,14 +545,32 @@ export async function generateStrmFiles(): Promise<StrmGenerateResult> {
     }
 
     // 创建目录
-    if (!existsSync(targetDir)) {
-      mkdirSync(targetDir, { recursive: true })
+    try {
+      ensureWritableDirectory(targetDir)
+    } catch (error: any) {
+      return {
+        success: false,
+        totalFiles: videoFiles.length,
+        generatedFiles: generatedCount,
+        skippedFiles: skippedCount,
+        error: error.message || `无法准备 STRM 输出目录: ${targetDir}`
+      }
     }
 
     // 写入 STRM 文件
     // 内容格式：{serverUrl}/api/d115/{pickcode}/{fileName}
     const strmContent = `${serverUrl}/api/d115/${file.pickcode}/${node.name}`
-    writeFileSync(targetPath, strmContent, 'utf-8')
+    try {
+      writeFileSync(targetPath, strmContent, 'utf-8')
+    } catch (error: any) {
+      return {
+        success: false,
+        totalFiles: videoFiles.length,
+        generatedFiles: generatedCount,
+        skippedFiles: skippedCount,
+        error: `写入 STRM 文件失败: ${targetPath}，${error.message || error}`
+      }
+    }
     generatedCount++
     
     if (generatedCount % 100 === 0) {
