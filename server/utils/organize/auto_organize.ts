@@ -108,6 +108,33 @@ function getAutoOrganizeRunningState(): { isRunning: boolean } {
   return (globalThis as any).__autoOrganizeState__
 }
 
+function normalizeCloudDirPath(path: string): string {
+  const trimmed = path.trim()
+  return trimmed.startsWith('/') ? trimmed : `/${trimmed}`
+}
+
+async function resolveConfiguredDirId(
+  cookie: string,
+  dir: string,
+  label: string
+): Promise<{ success: boolean; dirId?: string; error?: string }> {
+  const trimmed = dir.trim()
+  if (!trimmed) {
+    return { success: false, error: `${label}为空` }
+  }
+
+  if (/^\d+$/.test(trimmed)) {
+    return { success: true, dirId: trimmed }
+  }
+
+  const resolveResult = await resolvePathToId(cookie, normalizeCloudDirPath(trimmed))
+  if (!resolveResult.success || !resolveResult.dirId) {
+    return { success: false, error: resolveResult.error || `解析${label}失败` }
+  }
+
+  return { success: true, dirId: resolveResult.dirId }
+}
+
 export async function autoOrganize(): Promise<{ success: boolean; processed: number; successCount: number; failCount: number }> {
   const state = getAutoOrganizeRunningState()
   
@@ -134,38 +161,24 @@ export async function autoOrganize(): Promise<{ success: boolean; processed: num
       return { success: false, processed: 0, successCount: 0, failCount: 1 }
     }
 
-    let saveDirId = saveDir
-    if (saveDir.startsWith('/')) {
-      const resolveResult = await resolvePathToId(cookie, saveDir)
-      if (!resolveResult.success) {
-        log.error('自动整理', `解析保存目录失败: ${resolveResult.error}`)
-        return { success: false, processed: 0, successCount: 0, failCount: 1 }
-      }
-      saveDirId = resolveResult.dirId!
-    } else if (saveDir.includes('/')) {
-      const resolveResult = await resolvePathToId(cookie, '/' + saveDir)
-      if (!resolveResult.success) {
-        log.error('自动整理', `解析保存目录失败: ${resolveResult.error}`)
-        return { success: false, processed: 0, successCount: 0, failCount: 1 }
-      }
-      saveDirId = resolveResult.dirId!
+    const saveDirResult = await resolveConfiguredDirId(cookie, saveDir, '保存目录')
+    if (!saveDirResult.success || !saveDirResult.dirId) {
+      log.error('自动整理', `解析保存目录失败: ${saveDirResult.error}`)
+      return { success: false, processed: 0, successCount: 0, failCount: 1 }
     }
 
-    let mediaDirId = mediaDir
-    if (mediaDir.startsWith('/')) {
-      const resolveResult = await resolvePathToId(cookie, mediaDir)
-      if (!resolveResult.success) {
-        log.error('自动整理', `解析媒体库目录失败: ${resolveResult.error}`)
-        return { success: false, processed: 0, successCount: 0, failCount: 1 }
-      }
-      mediaDirId = resolveResult.dirId!
-    } else if (mediaDir.includes('/')) {
-      const resolveResult = await resolvePathToId(cookie, '/' + mediaDir)
-      if (!resolveResult.success) {
-        log.error('自动整理', `解析媒体库目录失败: ${resolveResult.error}`)
-        return { success: false, processed: 0, successCount: 0, failCount: 1 }
-      }
-      mediaDirId = resolveResult.dirId!
+    const mediaDirResult = await resolveConfiguredDirId(cookie, mediaDir, '媒体库目录')
+    if (!mediaDirResult.success || !mediaDirResult.dirId) {
+      log.error('自动整理', `解析媒体库目录失败: ${mediaDirResult.error}`)
+      return { success: false, processed: 0, successCount: 0, failCount: 1 }
+    }
+
+    const saveDirId = saveDirResult.dirId
+    const mediaDirId = mediaDirResult.dirId
+
+    if (saveDirId === '0') {
+      log.error('自动整理', '云盘保存目录不能设置为115根目录，请选择一个专用保存目录')
+      return { success: false, processed: 0, successCount: 0, failCount: 1 }
     }
 
     const listResult = await listFiles(cookie, saveDirId, false)
