@@ -4756,6 +4756,15 @@ async function executeDelete() {
   align-items: center;
 }
 
+.recognize-fail-correct .correct-toggle-btn {
+  max-width: 200px;
+}
+
+.recognize-fail-correct .correct-toggle-btn svg {
+  width: 15px;
+  height: 15px;
+}
+
 .btn-action.recognize {
   color: #8b5cf6;
 }
