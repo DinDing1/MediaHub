@@ -328,8 +328,69 @@
                       <line x1="12" y1="16" x2="12.01" y2="16"/>
                     </svg>
                     <p>无法识别此文件，请检查文件名格式</p>
+                    <p class="recognize-empty-hint">您可以使用下方纠错功能手动填写媒体信息</p>
+                    <div class="correct-section recognize-fail-correct">
+                      <button
+                        type="button"
+                        class="correct-toggle-btn"
+                        :class="{ dark: isDark, active: showCorrectForm }"
+                        @click="showCorrectForm = !showCorrectForm"
+                      >
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                          <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+                          <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+                        </svg>
+                        <span>{{ showCorrectForm ? '收起纠错' : '识别纠错' }}</span>
+                      </button>
+
+                      <Transition name="slide">
+                        <div v-if="showCorrectForm" class="correct-form compact" :class="{ dark: isDark }">
+                          <div class="correct-form-row correct-form-main-row">
+                            <div class="correct-inline-group type-group">
+                              <span class="correct-inline-label">媒体类型</span>
+                              <div class="type-selector compact">
+                                <button
+                                  type="button"
+                                  class="type-btn"
+                                  :class="{ active: correctMediaType === 'movie', dark: isDark }"
+                                  @click="correctMediaType = 'movie'"
+                                >
+                                  电影
+                                </button>
+                                <button
+                                  type="button"
+                                  class="type-btn"
+                                  :class="{ active: correctMediaType === 'tv', dark: isDark }"
+                                  @click="correctMediaType = 'tv'"
+                                >
+                                  电视剧
+                                </button>
+                              </div>
+                            </div>
+                            <div class="correct-inline-group tmdb-group">
+                              <span class="correct-inline-label">TMDB ID</span>
+                              <input
+                                type="text"
+                                v-model="correctTmdbId"
+                                placeholder="输入 TMDB ID"
+                                class="form-input"
+                                :class="{ dark: isDark }"
+                              />
+                            </div>
+                            <button
+                              type="button"
+                              class="btn btn-primary btn-sm correct-submit-btn"
+                              @click="applyCorrection"
+                              :disabled="!correctTmdbId"
+                            >
+                              重新识别
+                            </button>
+                          </div>
+                        </div>
+                      </Transition>
+                    </div>
                   </div>
-                  <template v-else>
+                  <template v-if="recognizeResult">
                     <div class="organize-result-card">
                       <div class="result-media">
                         <div v-if="recognizeResult.posterUrl" class="result-poster">
@@ -4679,6 +4740,20 @@ async function executeDelete() {
 
 .recognize-empty p {
   margin: 0;
+}
+
+.recognize-empty-hint {
+  font-size: 12px;
+  color: #6b7280;
+  margin-top: 4px;
+}
+
+.recognize-fail-correct {
+  margin-top: 16px;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
 }
 
 .btn-action.recognize {
