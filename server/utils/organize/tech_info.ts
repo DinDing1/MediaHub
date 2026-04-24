@@ -224,9 +224,33 @@ const WEB_SOURCES: Record<string, string> = {
  * @param source - 原始来源字符串
  * @returns 标准化后的平台名称
  */
+function escapeRegExp(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
 function normalizeWebSource(source: string): string {
   const key = source.replace(/[^0-9A-Za-z]/g, '').toUpperCase()
   return WEB_SOURCES[key] || source
+}
+
+function findSpecStartIndex(base: string): number {
+  const patterns = [
+    /(?:^|[.\s_\-])(?:19\d{2}|20\d{2})(?:$|[.\s_\-])/i,
+    /(?:^|[.\s_\-])(?:2160p|1080p|720p|480p|4320p|4k|8k|uhd|ultra[.\s_-]*hd)(?:$|[.\s_\-])/i,
+    /(?:^|[.\s_\-])(?:web[-.\s_]*dl|webrip|blu[-\s]?ray|bluray|remux|hdtv|dvdrip)(?:$|[.\s_\-])/i,
+    /(?:^|[.\s_\-])(?:hevc|h265|x265|h264|x264|avc|av1)(?:$|[.\s_\-])/i,
+  ]
+
+  const indexes = patterns
+    .map(pattern => base.search(pattern))
+    .filter(index => index >= 0)
+
+  return indexes.length > 0 ? Math.min(...indexes) : 0
+}
+
+function getSpecSegment(base: string): string {
+  const specStartIndex = findSpecStartIndex(base)
+  return specStartIndex > 0 ? base.slice(specStartIndex) : base
 }
 
 /**
@@ -284,9 +308,10 @@ function extractVideoFormat(base: string): string {
  */
 function extractResourceType(base: string): string {
   const patterns: [RegExp, string][] = [
-    [/(?:uhd\.?|ultra\s*hd\s*)?blu[-\s]?ray[.\s_\-]*remux|bluray[.\s_\-]*remux|蓝光原盘remux/i, 'BluRay REMUX'],
+    [/(?:uhd|ultra[.\s_-]*hd)[.\s_-]*blu[-\s]?ray[.\s_\-]*remux|blu[-\s]?ray[.\s_\-]*remux[.\s_-]*(?:uhd|ultra[.\s_-]*hd)|蓝光原盘remux/i, 'UHD BluRay REMUX'],
+    [/blu[-\s]?ray[.\s_\-]*remux|bluray[.\s_\-]*remux/i, 'BluRay REMUX'],
     [/\bremux\b/i, 'REMUX'],
-    [/uhd\.?bluray|uhd\.?bd/i, 'UHD BluRay'],
+    [/(?:uhd|ultra[.\s_-]*hd)[.\s_-]*(?:blu[-\s]?ray|bd)|(?:blu[-\s]?ray|bd)[.\s_-]*(?:uhd|ultra[.\s_-]*hd)/i, 'UHD BluRay'],
     [/blu[-\s]?ray|bluray|\bbd\b|blu-ray/i, 'BluRay'],
     [/\bbrrip\b/i, 'BRRip'],
     [/\bhdrip\b/i, 'HDRip'],
@@ -568,7 +593,7 @@ function extractEffects(base: string): string {
   if (/\bSDR\b/i.test(base) && effects.length === 0) {
     effects.push('SDR')
   }
-  if (/\bUHD\b/i.test(base)) {
+  if (/\bUHD\b|\bULTRA[.\s_-]*HD\b/i.test(base)) {
     effects.push('UHD')
   }
   if (/\bHQ\b/i.test(base)) {
@@ -622,18 +647,23 @@ export function extractTechInfo(fileName: string, releaseGroups: string[] = []):
   const ext = name.includes('.') ? '.' + name.split('.').pop() : ''
 
   const videoFormat = extractVideoFormat(base)
-  const resourceType = extractResourceType(base)
-  const videoCodec = extractVideoCodec(base)
-  const audioCodec = extractAudioCodec(base)
-  const webSource = extractWebSource(base)
-  const editionBase = extractEdition(base)
-  const effects = extractEffects(base)
+  const specSegment = getSpecSegment(base)
+  const resourceType = extractResourceType(specSegment)
+  const videoCodec = extractVideoCodec(specSegment)
+  const audioCodec = extractAudioCodec(specSegment)
+  const webSource = extractWebSource(specSegment)
+  const editionBase = extractEdition(specSegment)
+  const effects = extractEffects(specSegment)
+  const normalizedEffects = effects
+    .split(/\s+/)
+    .filter(effect => effect && !(resourceType.includes('UHD') && effect === 'UHD'))
+    .join(' ')
 
   let edition = ''
-  if (resourceType && effects) {
-    edition = `${resourceType} ${effects}`
+  if (resourceType && normalizedEffects) {
+    edition = `${resourceType} ${normalizedEffects}`
   } else {
-    edition = resourceType || effects || ''
+    edition = resourceType || normalizedEffects || ''
   }
   if (editionBase) {
     edition = edition ? `${edition} ${editionBase}` : editionBase
@@ -643,8 +673,9 @@ export function extractTechInfo(fileName: string, releaseGroups: string[] = []):
 
   if (releaseGroups.length > 0) {
     for (const group of releaseGroups) {
-      const pattern = new RegExp(`(?:^|[.\\s_\\-\\[\\(\\{@])${group}(?:$|[.\\s_\\-\\]\\)\\}@])`, 'i')
-      if (pattern.test(base)) {
+      const escapedGroup = escapeRegExp(group)
+      const pattern = new RegExp(`(?:^|[.\\s_\\-\\[\\(\\{@])${escapedGroup}(?:$|[.\\s_\\-\\]\\)\\}@])`, 'i')
+      if (pattern.test(specSegment)) {
         releaseGroup = group
         break
       }
@@ -652,7 +683,7 @@ export function extractTechInfo(fileName: string, releaseGroups: string[] = []):
   }
 
   if (!releaseGroup) {
-    const match = base.match(/[-@]([A-Za-z0-9]+)$/)
+    const match = specSegment.match(/[-@]([A-Za-z0-9]+)$/)
     if (match && match[1]) {
       const candidate = match[1]
       const badGroups = ['DL', 'WEB', 'WEBDL', 'WEBRIP', 'BLURAY', 'REMUX', 'BD', 'H264', 'H265', 'X264', 'X265']
