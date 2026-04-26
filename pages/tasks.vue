@@ -1964,6 +1964,7 @@ input:checked + .toggle-slider:before {
     width: 36px;
     height: 36px;
     border-radius: 11px;
+    align-self: center;
   }
 
   .task-icon-svg {
