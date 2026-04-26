@@ -3,7 +3,7 @@
  * GET: 获取日志列表（支持增量更新）
  * DELETE: 清空日志缓存
  */
-import { readFileSync, existsSync, statSync } from 'fs'
+import { readFileSync, existsSync, statSync, readdirSync } from 'fs'
 import { join } from 'path'
 import { clearLogs } from '../utils/logger'
 import { formatShanghaiDateKey } from '~/utils/time'
@@ -61,6 +61,31 @@ function parseLogFile(content: string): LogEntry[] {
   return logs
 }
 
+function findLatestLogFile(): string | null {
+  const logDir = getLogPath()
+  if (!existsSync(logDir)) {
+    return null
+  }
+
+  const todayFile = join(logDir, `app-${formatShanghaiDateKey()}.log`)
+  if (existsSync(todayFile)) {
+    return todayFile
+  }
+
+  try {
+    const files = readdirSync(logDir)
+      .filter(f => f.startsWith('app-') && f.endsWith('.log'))
+      .sort()
+      .reverse()
+
+    if (files.length > 0) {
+      return join(logDir, files[0])
+    }
+  } catch (e) {}
+
+  return null
+}
+
 function getLogs(forceRefresh: boolean = false): LogEntry[] {
   const now = Date.now()
 
@@ -69,13 +94,11 @@ function getLogs(forceRefresh: boolean = false): LogEntry[] {
   }
 
   try {
-    const logDir = getLogPath()
-    const logFile = join(logDir, `app-${formatShanghaiDateKey()}.log`)
+    const logFile = findLatestLogFile()
 
-    if (!existsSync(logFile)) {
-      cachedLogs = []
+    if (!logFile) {
       lastLogTime = now
-      return []
+      return cachedLogs
     }
 
     const stats = statSync(logFile)
