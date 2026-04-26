@@ -580,9 +580,10 @@ const expandedTasks = reactive(new Set<string>())
 
 function toggleExpand(taskId: string) {
   if (expandedTasks.has(taskId)) {
-    expandedTasks.delete(taskId)
+    expandedTasks.clear()
   } else {
-    expandedTasks.add(taskId)
+    expandedTasks.clear()
+    tasks.forEach(t => expandedTasks.add(t.id))
   }
 }
 
@@ -803,9 +804,6 @@ async function loadTasks() {
           localTask.libraryId = serverTask.libraryId
           localTask.libraryName = serverTask.libraryName
           localTask.concurrency = serverTask.concurrency
-        }
-        if (serverTask.enabled && !expandedTasks.has(serverTask.id)) {
-          expandedTasks.add(serverTask.id)
         }
       })
     }
@@ -1979,11 +1977,11 @@ input:checked + .toggle-slider:before {
   }
 
   .task-title-row {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) auto;
+    display: flex;
     align-items: center;
     gap: 6px;
     min-height: 28px;
+    flex-wrap: wrap;
   }
 
   .task-name {
@@ -2008,6 +2006,7 @@ input:checked + .toggle-slider:before {
   .toggle-switch {
     width: 38px;
     height: 22px;
+    align-self: center;
   }
 
   .toggle-slider:before {
