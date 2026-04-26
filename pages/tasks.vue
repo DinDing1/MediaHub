@@ -11,7 +11,7 @@
           running: task.running
         }"
       >
-        <div class="task-header">
+        <div class="task-header" @click="toggleExpand(task.id)">
           <div class="task-icon-wrapper" :class="{ enabled: task.enabled && task.id !== 'glados_sign' }">
             <component :is="task.icon" class="task-icon-svg" />
           </div>
@@ -26,13 +26,13 @@
             <p class="task-desc">{{ task.description }}</p>
           </div>
           
-          <label class="toggle-switch">
+          <label class="toggle-switch" @click.stop>
             <input type="checkbox" v-model="task.enabled" @change="toggleTask(task)" />
             <span class="toggle-slider"></span>
           </label>
         </div>
         
-        <div class="task-body" :class="{ expanded: task.enabled }">
+        <div class="task-body" :class="{ expanded: expandedTasks.has(task.id) }">
           <div class="config-section">
             <div class="config-row schedule-main-row">
               <div class="config-item schedule-item schedule-item-frequency">
@@ -576,6 +576,16 @@ const tasks = reactive<Task[]>([
 const message = ref('')
 const messageType = ref<'success' | 'error'>('success')
 
+const expandedTasks = reactive(new Set<string>())
+
+function toggleExpand(taskId: string) {
+  if (expandedTasks.has(taskId)) {
+    expandedTasks.delete(taskId)
+  } else {
+    expandedTasks.add(taskId)
+  }
+}
+
 const showFnosConfigModal = ref(false)
 const fnosCookie = ref('')
 const fnosSaving = ref(false)
@@ -794,6 +804,9 @@ async function loadTasks() {
           localTask.libraryName = serverTask.libraryName
           localTask.concurrency = serverTask.concurrency
         }
+        if (serverTask.enabled && !expandedTasks.has(serverTask.id)) {
+          expandedTasks.add(serverTask.id)
+        }
       })
     }
   } catch (e) {
@@ -942,6 +955,17 @@ onMounted(() => {
   align-items: center;
   gap: 14px;
   padding: 18px 20px 16px;
+  cursor: pointer;
+  user-select: none;
+  transition: background 0.2s ease;
+}
+
+.task-header:hover {
+  background: rgba(241, 245, 249, 0.4);
+}
+
+.task-card.dark .task-header:hover {
+  background: rgba(30, 41, 59, 0.3);
 }
 
 .task-icon-wrapper {
@@ -1110,11 +1134,11 @@ input:checked + .toggle-slider:before {
 .task-body {
   max-height: 0;
   overflow: hidden;
-  transition: max-height 0.3s ease;
+  transition: max-height 0.35s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .task-body.expanded {
-  max-height: 388px;
+  max-height: 500px;
 }
 
 .config-section {
@@ -1996,7 +2020,7 @@ input:checked + .toggle-slider:before {
   }
 
   .task-body.expanded {
-    max-height: 500px;
+    max-height: 600px;
   }
 
   .config-section {
