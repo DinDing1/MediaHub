@@ -5,8 +5,7 @@
  */
 import { readFileSync, existsSync, statSync, readdirSync } from 'fs'
 import { join } from 'path'
-import { clearLogs } from '../utils/logger'
-import { formatShanghaiDateKey } from '~/utils/time'
+import { clearLogs, getLogFilePath as getLoggerLogFilePath } from '../utils/logger'
 
 interface LogEntry {
   id: string
@@ -21,7 +20,7 @@ let cachedLogs: LogEntry[] = []
 let lastLogTime: number = 0
 const CACHE_TTL = 2000
 
-function getLogPath(): string {
+function getLogDir(): string {
   if (process.env.TRIM_PKGVAR) {
     return join(process.env.TRIM_PKGVAR, 'logs')
   }
@@ -62,14 +61,14 @@ function parseLogFile(content: string): LogEntry[] {
 }
 
 function findLatestLogFile(): string | null {
-  const logDir = getLogPath()
-  if (!existsSync(logDir)) {
-    return null
+  const loggerFile = getLoggerLogFilePath()
+  if (loggerFile && existsSync(loggerFile)) {
+    return loggerFile
   }
 
-  const todayFile = join(logDir, `app-${formatShanghaiDateKey()}.log`)
-  if (existsSync(todayFile)) {
-    return todayFile
+  const logDir = getLogDir()
+  if (!existsSync(logDir)) {
+    return null
   }
 
   try {
@@ -78,8 +77,9 @@ function findLatestLogFile(): string | null {
       .sort()
       .reverse()
 
-    if (files.length > 0) {
-      return join(logDir, files[0])
+    const latest = files[0]
+    if (latest) {
+      return join(logDir, latest)
     }
   } catch (e) {}
 

@@ -40,7 +40,7 @@ function getLogPath(): string {
   return logPath
 }
 
-function getLogFilePath(): string {
+export function getLogFilePath(): string {
   return join(getLogPath(), `app-${formatShanghaiDateKey()}.log`)
 }
 
