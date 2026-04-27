@@ -4,7 +4,7 @@
  * DELETE: 清空日志缓存
  */
 import { readFileSync, existsSync, statSync, readdirSync } from 'fs'
-import { join } from 'path'
+import { join, dirname } from 'path'
 import { clearLogs, getLogFilePath as getLoggerLogFilePath } from '../utils/logger'
 
 interface LogEntry {
@@ -19,13 +19,6 @@ interface LogEntry {
 let cachedLogs: LogEntry[] = []
 let lastLogTime: number = 0
 const CACHE_TTL = 2000
-
-function getLogDir(): string {
-  if (process.env.TRIM_PKGVAR) {
-    return join(process.env.TRIM_PKGVAR, 'logs')
-  }
-  return process.env.LOG_PATH || join(process.cwd(), 'logs')
-}
 
 function parseLogFile(content: string): LogEntry[] {
   const lines = content.split('\n').filter(line => line.trim())
@@ -62,11 +55,11 @@ function parseLogFile(content: string): LogEntry[] {
 
 function findLatestLogFile(): string | null {
   const loggerFile = getLoggerLogFilePath()
-  if (loggerFile && existsSync(loggerFile)) {
+  if (existsSync(loggerFile)) {
     return loggerFile
   }
 
-  const logDir = getLogDir()
+  const logDir = dirname(loggerFile)
   if (!existsSync(logDir)) {
     return null
   }
@@ -74,12 +67,20 @@ function findLatestLogFile(): string | null {
   try {
     const files = readdirSync(logDir)
       .filter(f => f.startsWith('app-') && f.endsWith('.log'))
-      .sort()
-      .reverse()
+      .map(f => {
+        const filePath = join(logDir, f)
+        try {
+          return { path: filePath, mtime: statSync(filePath).mtime.getTime() }
+        } catch {
+          return null
+        }
+      })
+      .filter((f): f is { path: string; mtime: number } => f !== null)
+      .sort((a, b) => b.mtime - a.mtime)
 
     const latest = files[0]
     if (latest) {
-      return join(logDir, latest)
+      return latest.path
     }
   } catch (e) {}
 
