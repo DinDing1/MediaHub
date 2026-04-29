@@ -5,10 +5,6 @@
             {
                 "type": "tips",
                 "helpText": "欢迎使用 MediaHub！这是一个媒体库管理工具，支持云盘整理、自动重命名、Telegram通知等功能。"
-            },
-            {
-                "type": "tips",
-                "helpText": "安装前请确保已安装 Node.js v24 运行环境。"
             }
         ]
     },

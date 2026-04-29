@@ -1,6 +1,5 @@
 #!/bin/bash
 set -e
-export PATH=/var/apps/nodejs_v24/target/bin:$PATH
 
 mkdir -p "${TRIM_PKGVAR}/data" "${TRIM_PKGVAR}/logs"
 

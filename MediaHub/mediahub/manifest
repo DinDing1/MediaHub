@@ -10,7 +10,6 @@ distributor=叮叮咣咣
 distributor_url=https://github.com/DinDing1/FnDepot/tree/main/MediaHub
 os_min_version=1.1.8
 ctl_stop=true
-install_dep_apps=nodejs_v24
 desktop_uidir=ui
 desktop_applaunchname=mediahub.Application
 service_port=3030

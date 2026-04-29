@@ -168,7 +168,7 @@ GitHub Actions 会自动：
 
 飞牛运行时依赖：
 
-- Node.js 24
+- 内置 Node.js 运行时（构建时自动下载）
 - 应用端口：`3030`
 - 数据目录：`${TRIM_PKGVAR}/data`
 - 日志目录：`${TRIM_PKGVAR}/logs`

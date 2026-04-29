@@ -79,11 +79,11 @@ jobs:
       - id: set-matrix
         run: |
           if [ "${{ github.event.inputs.platform }}" = "x86_64" ]; then
-            echo 'matrix={"include":[{"arch":"x86_64","runner":"ubuntu-latest","fnpack":"fnpack-1.2.1-linux-amd64","platform":"x86"}]}' >> $GITHUB_OUTPUT
+            echo 'matrix={"include":[{"arch":"x86_64","runner":"ubuntu-latest","fnpack":"fnpack-1.2.1-linux-amd64","platform":"x86","nodeArch":"x64"}]}' >> $GITHUB_OUTPUT
           elif [ "${{ github.event.inputs.platform }}" = "aarch64" ]; then
-            echo 'matrix={"include":[{"arch":"aarch64","runner":"ubuntu-24.04-arm","fnpack":"fnpack-1.2.1-linux-arm64","platform":"arm"}]}' >> $GITHUB_OUTPUT
+            echo 'matrix={"include":[{"arch":"aarch64","runner":"ubuntu-24.04-arm","fnpack":"fnpack-1.2.1-linux-arm64","platform":"arm","nodeArch":"arm64"}]}' >> $GITHUB_OUTPUT
           else
-            echo 'matrix={"include":[{"arch":"x86_64","runner":"ubuntu-latest","fnpack":"fnpack-1.2.1-linux-amd64","platform":"x86"},{"arch":"aarch64","runner":"ubuntu-24.04-arm","fnpack":"fnpack-1.2.1-linux-arm64","platform":"arm"}]}' >> $GITHUB_OUTPUT
+            echo 'matrix={"include":[{"arch":"x86_64","runner":"ubuntu-latest","fnpack":"fnpack-1.2.1-linux-amd64","platform":"x86","nodeArch":"x64"},{"arch":"aarch64","runner":"ubuntu-24.04-arm","fnpack":"fnpack-1.2.1-linux-arm64","platform":"arm","nodeArch":"arm64"}]}' >> $GITHUB_OUTPUT
           fi
 
   package:
@@ -110,7 +110,27 @@ jobs:
       - name: 准备打包目录
         run: |
           rm -rf MediaHub/mediahub/app/www
+          rm -rf MediaHub/mediahub/app/runtime
           mkdir -p MediaHub/mediahub/app/www
+          mkdir -p MediaHub/mediahub/app/runtime/bin
+
+      - name: 下载 Node.js 运行时
+        run: |
+          NODE_VERSION="24.15.0"
+          NODE_ARCH="${{ matrix.nodeArch }}"
+          NODE_TAR="node-v${NODE_VERSION}-linux-${NODE_ARCH}.tar.xz"
+          NODE_URL="https://nodejs.org/dist/v${NODE_VERSION}/${NODE_TAR}"
+
+          echo "下载 Node.js 运行时: ${NODE_URL}"
+          curl -fSL -o /tmp/node-runtime.tar.xz "${NODE_URL}"
+
+          tar -xJf /tmp/node-runtime.tar.xz -C /tmp "node-v${NODE_VERSION}-linux-${NODE_ARCH}/bin/node"
+          cp "/tmp/node-v${NODE_VERSION}-linux-${NODE_ARCH}/bin/node" MediaHub/mediahub/app/runtime/bin/node
+          chmod +x MediaHub/mediahub/app/runtime/bin/node
+
+          echo "Node.js 运行时体积:"
+          ls -lh MediaHub/mediahub/app/runtime/bin/node
+          rm -rf /tmp/node-runtime.tar.xz "/tmp/node-v${NODE_VERSION}-linux-${NODE_ARCH}"
 
       - name: 复制服务端文件
         run: |

@@ -1,0 +1,254 @@
+name: 构建 OneServer_FPK
+
+on:
+  workflow_dispatch:
+    inputs:
+      platform:
+        description: '构建平台'
+        required: true
+        default: 'all'
+        type: choice
+        options:
+          - all
+          - x86
+          - arm
+      sync_fndepot:
+        description: '同步发布到 FnDepot 仓库'
+        required: false
+        default: false
+        type: boolean
+  push:
+    branches:
+      - main
+    paths:
+      - 'config/version.json'
+      - '.github/workflows/package.yml'
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+permissions:
+  contents: write
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 读取版本号
+        id: version
+        run: |
+          VERSION=$(node -p "require('./config/version.json').version")
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+      - id: set-matrix
+        run: |
+          REQUESTED_PLATFORM="${{ github.event.inputs.platform }}"
+
+          if [ -z "$REQUESTED_PLATFORM" ]; then
+            REQUESTED_PLATFORM="all"
+          fi
+
+          REQUESTED_PLATFORM="$REQUESTED_PLATFORM" node <<'EOF' >> "$GITHUB_OUTPUT"
+          const requestedPlatform = process.env.REQUESTED_PLATFORM;
+          const entries = [
+            { arch: 'x86', runner: 'ubuntu-latest', fnpack: 'fnpack-1.2.1-linux-amd64', platform: 'x86', requested: 'x86_64', nodeArch: 'x64' },
+            { arch: 'arm', runner: 'ubuntu-24.04-arm', fnpack: 'fnpack-1.2.1-linux-arm64', platform: 'arm', requested: 'aarch64', nodeArch: 'arm64' },
+          ];
+
+          const requestedAliases = new Map(entries.map((entry) => [entry.requested, entry.arch]));
+          const normalizedPlatform = requestedAliases.get(requestedPlatform) ?? requestedPlatform;
+
+          const supportedPlatforms = new Set(['all', ...entries.map((entry) => entry.arch), ...entries.map((entry) => entry.requested)]);
+          if (!supportedPlatforms.has(requestedPlatform)) {
+            console.error(`不支持的构建平台：${requestedPlatform}`);
+            process.exit(1);
+          }
+
+          const include = normalizedPlatform === 'all'
+            ? entries
+            : entries.filter((entry) => entry.arch === normalizedPlatform);
+
+          process.stdout.write(`matrix=${JSON.stringify({ include })}\n`);
+          EOF
+
+  package:
+    needs: prepare
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      matrix: ${{ fromJson(needs.prepare.outputs.matrix) }}
+
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 安装 Node.js 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: 安装依赖
+        run: npm ci
+
+      - name: 构建项目
+        run: npm run build
+
+      - name: 准备打包目录
+        run: |
+          rm -rf App.Native.OneServer/app/server
+          rm -rf App.Native.OneServer/app/www/dist
+          mkdir -p App.Native.OneServer/app/server
+          mkdir -p App.Native.OneServer/app/www
+
+      - name: 下载 Node.js 运行时
+        run: |
+          NODE_VERSION="24.15.0"
+          NODE_ARCH="${{ matrix.nodeArch }}"
+          NODE_TAR="node-v${NODE_VERSION}-linux-${NODE_ARCH}.tar.xz"
+          NODE_URL="https://nodejs.org/dist/v${NODE_VERSION}/${NODE_TAR}"
+
+          echo "下载 Node.js 运行时: ${NODE_URL}"
+          curl -fSL -o /tmp/node-runtime.tar.xz "${NODE_URL}"
+
+          mkdir -p App.Native.OneServer/app/runtime/bin
+          tar -xJf /tmp/node-runtime.tar.xz -C /tmp "node-v${NODE_VERSION}-linux-${NODE_ARCH}/bin/node"
+          cp "/tmp/node-v${NODE_VERSION}-linux-${NODE_ARCH}/bin/node" App.Native.OneServer/app/runtime/bin/node
+          chmod +x App.Native.OneServer/app/runtime/bin/node
+
+          echo "Node.js 运行时体积:"
+          ls -lh App.Native.OneServer/app/runtime/bin/node
+          rm -rf /tmp/node-runtime.tar.xz "/tmp/node-v${NODE_VERSION}-linux-${NODE_ARCH}"
+
+      - name: 复制服务端构建产物
+        run: |
+          cp -r apps/server/dist App.Native.OneServer/app/server/dist
+
+      - name: 生成服务端运行时清单
+        run: |
+          node <<'EOF'
+          const fs = require('node:fs');
+          const path = require('node:path');
+
+          const source = JSON.parse(fs.readFileSync(path.join(process.cwd(), 'apps/server/package.json'), 'utf8'));
+          const runtimePackage = {
+            name: 'one-server-runtime',
+            private: true,
+            type: 'module',
+            main: 'dist/index.js',
+            dependencies: Object.fromEntries(
+              Object.entries(source.dependencies ?? {}).filter(([name]) => name !== '@one-server/shared'),
+            ),
+          };
+
+          fs.writeFileSync(
+            path.join(process.cwd(), 'App.Native.OneServer/app/server/package.json'),
+            `${JSON.stringify(runtimePackage, null, 2)}\n`,
+            'utf8',
+          );
+          EOF
+
+      - name: 安装服务端运行时依赖
+        run: |
+          # 飞牛安装器在处理 Linux npm 生成的 .bin 符号链接时可能触发“设置目录权限失败”，
+          # 这里显式禁用 bin-links，确保产物结构更接近 Windows 本地打包结果。
+          npm install --omit=dev --no-bin-links --prefix App.Native.OneServer/app/server
+          rm -rf App.Native.OneServer/app/server/node_modules/.bin
+
+      - name: 输出服务端运行时依赖体积
+        run: |
+          du -sh App.Native.OneServer/app/server/node_modules
+
+      - name: 复制前端构建产物
+        run: |
+          cp -r apps/www/dist App.Native.OneServer/app/www/dist
+
+      - name: 更新 manifest 标识
+        run: |
+          sed -i "s/^version=.*/version=${{ needs.prepare.outputs.version }}/" App.Native.OneServer/manifest
+          sed -i "s/^platform=.*/platform=${{ matrix.platform }}/" App.Native.OneServer/manifest
+
+      - name: 设置 fnpack 可执行权限
+        run: chmod +x ${{ matrix.fnpack }}
+
+      - name: 构建 fpk 包
+        run: |
+          ./${{ matrix.fnpack }} build -d App.Native.OneServer
+          test -f OneServer.fpk
+
+      - name: 输出 fpk 包体积
+        run: |
+          ls -lh OneServer.fpk
+
+      - name: 重命名 fpk 包
+        run: |
+          mv OneServer.fpk OneServer-v${{ needs.prepare.outputs.version }}-${{ matrix.arch }}.fpk
+
+      - name: 上传构建产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: OneServer-v${{ needs.prepare.outputs.version }}-${{ matrix.arch }}
+          path: OneServer-v${{ needs.prepare.outputs.version }}-${{ matrix.arch }}.fpk
+
+  release:
+    needs: [prepare, package]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: 下载所有构建产物
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: 删除当前仓库旧版本
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION="${{ needs.prepare.outputs.version }}"
+
+          gh release list --limit 100 --repo ${{ github.repository }} --json tagName --jq '.[].tagName' | while read tag; do
+            if [[ "$tag" == OneServer-v* && "$tag" != "OneServer-v$VERSION" ]]; then
+              echo "删除旧版本: $tag"
+              gh release delete "$tag" --repo ${{ github.repository }} --yes --cleanup-tag || true
+            fi
+          done
+
+      - name: 在当前仓库创建发布
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: OneServer-v${{ needs.prepare.outputs.version }}
+          name: OneServer-v${{ needs.prepare.outputs.version }}
+          files: artifacts/**/*.fpk
+          generate_release_notes: false
+
+      - name: 删除 FnDepot 仓库旧版本
+        if: ${{ github.event.inputs.sync_fndepot == 'true' }}
+        env:
+          GH_TOKEN: ${{ secrets.FNDEPOT_TOKEN }}
+        run: |
+          VERSION="${{ needs.prepare.outputs.version }}"
+
+          gh release list --limit 100 --repo DinDing1/FnDepot --json tagName --jq '.[].tagName' | while read tag; do
+            if [[ "$tag" == OneServer-v* && "$tag" != "OneServer-v$VERSION" ]]; then
+              echo "删除 FnDepot 旧版本: $tag"
+              gh release delete "$tag" --repo DinDing1/FnDepot --yes --cleanup-tag || true
+            fi
+          done
+
+      - name: 同步发布到 FnDepot 仓库
+        if: ${{ github.event.inputs.sync_fndepot == 'true' }}
+        env:
+          GH_TOKEN: ${{ secrets.FNDEPOT_TOKEN }}
+        run: |
+          VERSION="${{ needs.prepare.outputs.version }}"
+
+          gh release create "OneServer-v${VERSION}" \
+            --repo DinDing1/FnDepot \
+            --title "OneServer-v${VERSION}" \
+            artifacts/**/*.fpk
