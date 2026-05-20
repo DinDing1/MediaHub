@@ -1,5 +1,0 @@
-#!/bin/bash
-
-mkdir -p "${TRIM_PKGVAR:-$(cd "$(dirname "$0")/.." && pwd)/data}"
-
-exit 0
