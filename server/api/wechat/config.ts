@@ -38,13 +38,13 @@ export default defineEventHandler(async (event) => {
       success: true,
       data: {
         configured: !!token,
-        token: token || '',
         tokenConfigured: !!token,
         botId: botId || '',
         userId: userId || '',
         notifyUserId: notifyUserId || '',
         status: status.state,
-        connected: status.connected
+        connected: status.connected,
+        qrcodeUrl: status.qrcodeUrl || ''
       }
     }
   }

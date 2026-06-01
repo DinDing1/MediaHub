@@ -15,9 +15,9 @@
   },
   "dependencies": {
     "@nuxt/ui": "^3.0.0",
-    "@openilink/openilink-sdk-node": "^0.4.2",
     "@vueuse/core": "^10.9.0",
     "@vueuse/nuxt": "^10.9.0",
+    "@wechatbot/wechatbot": "^2.1.1",
     "better-sqlite3": "^12.8.0",
     "grammy": "^1.43.0",
     "https-proxy-agent": "^9.0.0",
