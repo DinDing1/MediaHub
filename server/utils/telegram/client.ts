@@ -8,6 +8,7 @@ import { NewMessage } from 'telegram/events/index.js'
 import { getSetting, setSetting } from '../db'
 import { log } from '../logger'
 import { handleCommand, setCommandClient, handleShareLink } from './commands'
+import { sendBotNotification, initBot } from './bot'
 
 interface TelegramGlobalState {
   client: TelegramClient | null
@@ -550,7 +551,21 @@ export async function disconnectClient(): Promise<void> {
   saveState()
 }
 
+/**
+ * 发送通知消息（双模式路由）
+ * 优先通过 Bot API 发送（更稳定），Bot 不可用时回退到 User Client
+ * 两种模式都不可用时返回失败
+ */
 export async function sendNotification(message: string, imageUrl?: string): Promise<{ success: boolean; error?: string }> {
+  /* 优先尝试 Bot 模式发送 */
+  const botStatus = getBotLoginStatus()
+  if (botStatus.connected) {
+    const result = await sendBotNotification(message, imageUrl)
+    if (result.success) return result
+    log.warn('Telegram', `Bot 发送失败，尝试 User 模式: ${result.error}`)
+  }
+
+  /* Bot 不可用或发送失败，回退到 User 模式 */
   getState()
   
   const notifyChat = getSetting('telegram_notify_chat')

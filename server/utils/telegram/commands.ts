@@ -1,5 +1,6 @@
 import { TelegramClient } from 'telegram/index.js'
-import { Api, helpers } from 'telegram/index.js'
+import { Api } from 'telegram/index.js'
+import { Context } from 'grammy'
 import { getSetting } from '../db'
 import { log } from '../logger'
 import { saveShareLink, is115ShareUrl } from '../pan115/share115'
@@ -49,6 +50,8 @@ function isWhitelistedChat(chatId: any): boolean {
   return whitelist.length === 0 || whitelist.includes(id)
 }
 
+const HELP_TEXT = '👋 你好！我是媒体管理机器人。\n\n可用命令：\n/start - 显示帮助信息\n/strm115 - 生成 STRM 文件\n\n💡 发送115分享链接可自动转存到云盘'
+
 interface CommandContext {
   chatId: any
   senderId: any
@@ -62,31 +65,33 @@ const commands: Map<string, CommandHandler> = new Map()
 
 commands.set('start', async (ctx: CommandContext) => {
   await client?.sendMessage(ctx.chatId, {
-    message: '👋 你好！我是媒体管理机器人。\n\n可用命令：\n-start - 显示帮助信息\n-strm115 - 生成 STRM 文件\n\n💡 发送115分享链接可自动转存到云盘'
+    message: HELP_TEXT
   })
-  await ctx.message.delete()
+  try {
+    await ctx.message.delete()
+  } catch {}
   log.info('Telegram', `已响应 -start 命令，来自用户 ${ctx.senderId}`)
 })
 
 commands.set('strm115', async (ctx: CommandContext) => {
   log.info('Telegram', `收到 -strm115 命令，来自用户 ${ctx.senderId}`)
-  
+
   const progressMsg = await client?.sendMessage(ctx.chatId, {
     message: '🔄 开始生成 STRM 文件...'
   })
-  
+
   try {
     const result = await generateStrmFiles()
-    
+
     if (progressMsg) {
       try {
         await progressMsg.delete()
       } catch {}
     }
-    
+
     if (!result.success) {
-      await client?.sendMessage(ctx.chatId, { 
-        message: `❌ 生成失败: ${result.error}` 
+      await client?.sendMessage(ctx.chatId, {
+        message: `❌ 生成失败: ${result.error}`
       })
       log.error('Telegram', `STRM 生成失败: ${result.error}`)
     }
@@ -96,74 +101,76 @@ commands.set('strm115', async (ctx: CommandContext) => {
         await progressMsg.delete()
       } catch {}
     }
-    
-    await client?.sendMessage(ctx.chatId, { 
-      message: `❌ 生成异常: ${e.message}` 
+
+    await client?.sendMessage(ctx.chatId, {
+      message: `❌ 生成异常: ${e.message}`
     })
     log.error('Telegram', `STRM 生成异常: ${e.message}`)
   }
-  
-  await ctx.message.delete()
+
+  try {
+    await ctx.message.delete()
+  } catch {}
 })
 
 export async function handleCommand(message: Api.Message): Promise<void> {
   if (!message) return
-  
+
   const text = message.message || ''
   const chatId = message.chatId
   const senderId = message.senderId
-  
+
   if (!text.startsWith('-')) return
-  
+
   const parts = text.slice(1).split(' ')
   const commandName = parts[0]?.toLowerCase()
   const args = parts.slice(1)
-  
+
   if (!commandName) return
-  
+
   const handler = commands.get(commandName)
   if (!handler) return
-  
+
   if (!isAdmin(senderId)) {
     log.info('Telegram', `非管理员用户 ${senderId} 尝试使用命令 -${commandName}`)
     return
   }
-  
+
   await handler({ chatId, senderId, args, message })
 }
 
 export async function handleShareLink(message: Api.Message): Promise<boolean> {
   if (!message) return false
-  
+
   const text = message.message || ''
   const chatId = message.chatId
   const senderId = message.senderId
-  
+
   if (!chatId) return false
   if (!isAdmin(senderId)) {
     return false
   }
-  
+
   const shareUrl = is115ShareUrl(text)
   if (!shareUrl) {
     return false
   }
-  
+
   log.info('Telegram', `检测到115分享链接，来自用户 ${senderId}`)
-  
+
   try {
     const progressMsg = await client?.sendMessage(chatId, {
       message: '🔍 检测到115分享链接，开始转存...'
     })
-    
+
     const result = await saveShareLink(shareUrl)
-    
+
     if (progressMsg) {
       try {
         await progressMsg.delete()
       } catch {}
     }
-    
+
     if (result.success) {
       const replyText = [
         '✅ 115分享转存成功!',
@@ -171,22 +178,133 @@ export async function handleShareLink(message: Api.Message): Promise<boolean> {
         `📄 文件数量: ${result.fileCount}`,
         `💾 总大小: ${result.totalSize}`
       ].join('\n')
-      
+
       await client?.sendMessage(chatId, { message: replyText })
       log.info('Telegram', `115分享转存成功: ${result.saveDir}, ${result.fileCount}个文件`)
     } else {
-      await client?.sendMessage(chatId, { 
-        message: `❌ 转存失败: ${result.error}` 
+      await client?.sendMessage(chatId, {
+        message: `❌ 转存失败: ${result.error}`
       })
       log.error('Telegram', `115分享转存失败: ${result.error}`)
     }
-    
+
     return true
   } catch (e: any) {
     log.error('Telegram', `处理115分享链接异常: ${e.message}`)
-    await client?.sendMessage(chatId, { 
-      message: `❌ 处理分享链接失败: ${e.message}` 
+    await client?.sendMessage(chatId, {
+      message: `❌ 处理分享链接失败: ${e.message}`
     })
+    return true
+  }
+}
+
+export async function handleBotCommand(ctx: Context): Promise<void> {
+  const text = ctx.message?.text
+  if (!text) return
+
+  const chatId = ctx.chat?.id
+  const fromId = ctx.from?.id
+
+  if (!chatId || !fromId) return
+
+  /* 私聊和群组都需要管理员权限，非管理员静默忽略 */
+  if (!isAdmin(fromId)) {
+    return
+  }
+
+  const parts = text.split(' ')
+  const commandPart = parts[0] || ''
+  const commandName = commandPart.startsWith('/')
+    ? commandPart.slice(1).split('@')[0]?.toLowerCase() || ''
+    : ''
+  const args = parts.slice(1)
+
+  if (!commandName) return
+
+  if (commandName === 'start') {
+    await ctx.reply(HELP_TEXT, { parse_mode: 'HTML' })
+    log.info('Telegram Bot', `已响应 /start 命令，来自用户 ${fromId}`)
+    return
+  }
+
+  if (commandName === 'strm115') {
+    log.info('Telegram Bot', `收到 /strm115 命令，来自用户 ${fromId}`)
+
+    const progressMsg = await ctx.reply('🔄 开始生成 STRM 文件...')
+
+    try {
+      const result = await generateStrmFiles()
+
+      try {
+        await ctx.api.deleteMessage(chatId, progressMsg.message_id)
+      } catch {}
+
+      if (!result.success) {
+        await ctx.reply(`❌ 生成失败: ${result.error}`)
+        log.error('Telegram Bot', `STRM 生成失败: ${result.error}`)
+      }
+    } catch (e: any) {
+      try {
+        await ctx.api.deleteMessage(chatId, progressMsg.message_id)
+      } catch {}
+
+      await ctx.reply(`❌ 生成异常: ${e.message}`)
+      log.error('Telegram Bot', `STRM 生成异常: ${e.message}`)
+    }
+    return
+  }
+
+  const handler = commands.get(commandName)
+  if (handler) {
+    log.info('Telegram Bot', `收到 /${commandName} 命令，来自用户 ${fromId}`)
+  }
+}
+
+export async function handleBotShareLink(ctx: Context): Promise<boolean> {
+  const text = ctx.message?.text
+  if (!text) return false
+
+  const chatId = ctx.chat?.id
+  const fromId = ctx.from?.id
+
+  if (!chatId || !fromId) return false
+
+  /* 私聊和群组都需要管理员权限，非管理员静默忽略 */
+  if (!isAdmin(fromId)) return false
+
+  const shareUrl = is115ShareUrl(text)
+  if (!shareUrl) return false
+
+  log.info('Telegram Bot', `检测到115分享链接，来自用户 ${fromId}`)
+
+  try {
+    const progressMsg = await ctx.reply('🔍 检测到115分享链接，开始转存...')
+
+    const result = await saveShareLink(shareUrl)
+
+    try {
+      await ctx.api.deleteMessage(chatId, progressMsg.message_id)
+    } catch {}
+
+    if (result.success) {
+      const replyText = [
+        '✅ 115分享转存成功!',
+        `📁 转存目录: ${result.saveDir}`,
+        `📄 文件数量: ${result.fileCount}`,
+        `💾 总大小: ${result.totalSize}`
+      ].join('\n')
+
+      await ctx.reply(replyText)
+      log.info('Telegram Bot', `115分享转存成功: ${result.saveDir}, ${result.fileCount}个文件`)
+    } else {
+      await ctx.reply(`❌ 转存失败: ${result.error}`)
+      log.error('Telegram Bot', `115分享转存失败: ${result.error}`)
+    }
+
+    return true
+  } catch (e: any) {
+    log.error('Telegram Bot', `处理115分享链接异常: ${e.message}`)
+    await ctx.reply(`❌ 处理分享链接失败: ${e.message}`)
     return true
   }
 }

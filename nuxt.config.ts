@@ -51,7 +51,6 @@ export default defineNuxtConfig({
       ],
       inline: [
         '@iconify/utils',
-        'debug',
         'ms',
         'entities',
         'htmlparser2',

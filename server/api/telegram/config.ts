@@ -1,6 +1,7 @@
 /**
  * Telegram 配置 API
- * 用于管理 Telegram 用户客户端的配置和登录
+ * 同时支持 Bot 模式和用户模式，两种模式可并行运行
+ * 配置了哪个就启用哪个，都配置则都启用
  */
 import { defineEventHandler, getMethod, readBody } from 'h3'
 import { getSetting, setSetting } from '../../utils/db'
@@ -13,6 +14,7 @@ import {
   getMe,
   initTelegramClient
 } from '../../utils/telegram/client'
+import { initBot, disconnectBot, getBotLoginStatus } from '../../utils/telegram/bot'
 
 const phoneCodeHashStore: Map<string, string> = new Map()
 let cachedUser: any = null
@@ -32,20 +34,29 @@ export default defineEventHandler(async (event) => {
     const whitelistChats = getSetting('telegram_whitelist_chats')
     const notifyChat = getSetting('telegram_notify_chat')
     const sessionString = getSetting('telegram_session_string') || ''
+    const botToken = getSetting('telegram_bot_token')
 
-    let status = getLoginStatus()
-    let user = null
+    /* Bot 模式状态 */
+    const botStatus = getBotLoginStatus()
+    const botInfo = botStatus.botInfo || null
+    const botConfigured = !!botToken
 
-    if (!status.connected && status.state === 'disconnected' && apiId && apiHash && sessionString) {
-      void initTelegramClient().catch(() => {})
-      status = {
-        ...status,
-        state: 'connecting',
-        error: undefined
-      }
+    /* 如果 Bot 已配置但未连接，自动尝试初始化 */
+    if (!botStatus.connected && botToken) {
+      void initBot().catch(() => {})
     }
 
-    if (status.connected) {
+    /* User 模式状态 */
+    const userStatus = getLoginStatus()
+    let user = null
+
+    /* 如果 User 已配置但未连接，自动尝试初始化 */
+    if (!userStatus.connected && userStatus.state === 'disconnected' && apiId && apiHash && sessionString) {
+      void initTelegramClient().catch(() => {})
+    }
+
+    /* 获取 User 信息（已连接时） */
+    if (userStatus.connected) {
       const now = Date.now()
       if (cachedUser && (now - lastUserFetch) < USER_CACHE_TTL) {
         user = cachedUser
@@ -62,20 +73,30 @@ export default defineEventHandler(async (event) => {
     return {
       success: true,
       data: {
-        configured: !!(apiId && apiHash),
+        /* Bot 模式 */
+        botConfigured,
+        botConnected: botStatus.connected,
+        botStatus: botStatus.state,
+        botInfo,
+        botToken: botToken || '',
+
+        /* User 模式 */
+        userConfigured: !!(apiId && apiHash),
+        userConnected: userStatus.connected,
+        userStatus: userStatus.state,
+        userError: userStatus.error,
+        user,
         apiId: apiId || '',
         apiHash: apiHash || '',
         apiHashConfigured: !!apiHash,
         phone: phone || '',
+
+        /* 通用配置 */
         proxyEnabled: proxyEnabled === 'true',
         proxyUrl: proxyUrl || '',
         adminIds: adminIds || '',
         whitelistChats: whitelistChats || '',
-        notifyChat: notifyChat || '',
-        status: status.state,
-        connected: status.connected,
-        error: status.error,
-        user
+        notifyChat: notifyChat || ''
       }
     }
   }
@@ -90,6 +111,7 @@ export default defineEventHandler(async (event) => {
         phone,
         code,
         password,
+        botToken,
         proxyEnabled,
         proxyUrl,
         adminIds,
@@ -104,6 +126,9 @@ export default defineEventHandler(async (event) => {
         setSetting('telegram_api_hash', apiHash || '')
         if (phone) {
           setSetting('telegram_phone', phone)
+        }
+        if (botToken !== undefined && botToken !== '') {
+          setSetting('telegram_bot_token', botToken)
         }
 
         setSetting('telegram_proxy_enabled', proxyEnabled ? 'true' : 'false')
@@ -122,6 +147,18 @@ export default defineEventHandler(async (event) => {
         return { success: true, message: '配置已保存' }
       }
 
+      /* Bot 模式操作 */
+      if (action === 'initBot') {
+        const result = await initBot()
+        return result
+      }
+
+      if (action === 'disconnectBot') {
+        await disconnectBot()
+        return { success: true }
+      }
+
+      /* User 模式操作 */
       if (action === 'init') {
         const result = await initTelegramClient()
         if (!result.success) {

@@ -336,7 +336,7 @@
         </div>
       </div>
 
-      <!-- Telegram配置卡片 -->
+      <!-- Telegram配置卡片（手风琴折叠） -->
       <div class="settings-card" :class="{ dark: isDark }">
         <div class="card-header">
           <div class="card-header-left">
@@ -346,204 +346,283 @@
               </svg>
             </div>
             <div class="card-header-info">
-              <h3 class="card-title" :class="{ dark: isDark }">Telegram 配置</h3>
-            </div>
-          </div>
-          <div class="telegram-status-header compact-status-header">
-            <div v-if="telegramStatus.connected && telegramStatus.user" class="telegram-header-connected">
-              <div class="telegram-status-main">
-                <div class="status-badge connected">
-                  <span class="status-dot"></span>
-                  <span class="status-text">已连接</span>
-                </div>
-              </div>
-              <button class="btn btn-danger btn-xs btn-logout-compact" @click="telegramLogout" :disabled="telegramLoading">
-                {{ telegramLoading ? '退出中...' : '登出' }}
-              </button>
-            </div>
-            <div v-else class="telegram-header-disconnected">
-              <div class="telegram-status-main">
-                <div class="status-badge" :class="telegramStatus.status === 'connecting' ? 'warning' : 'disconnected'">
-                  <span class="status-dot"></span>
-                  <span class="status-text">{{ telegramStatusText }}</span>
-                </div>
-              </div>
+              <h3 class="card-title" :class="{ dark: isDark }">Telegram</h3>
             </div>
           </div>
         </div>
         <div class="card-content">
-          <div class="form-row">
-            <div class="form-group half">
-              <label class="form-label" :class="{ dark: isDark }">API ID</label>
-              <input
-                v-model="telegramForm.apiId"
-                type="text"
-                placeholder="从 my.telegram.org 获取"
-                class="form-input"
-                :class="{ dark: isDark }"
-              />
+          <!-- 🤖 Bot 模式 折叠区 -->
+          <div class="accordion" :class="{ dark: isDark }">
+            <div class="accordion-header" @click="tgAccordion.bot = !tgAccordion.bot">
+              <div class="accordion-header-left">
+                <span class="accordion-icon" :class="{ expanded: tgAccordion.bot }">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
+                </span>
+                <span class="accordion-title">🤖 Bot 模式</span>
+              </div>
+              <div class="accordion-header-right">
+                <div v-if="botStatus.connected && botStatus.botInfo" class="bot-info-inline" :class="{ dark: isDark }">
+                  <span class="bot-name">@{{ botStatus.botInfo.username }}</span>
+                </div>
+                <div v-else class="mode-status-tag" :class="{ dark: isDark }">未连接</div>
+              </div>
             </div>
-            <div class="form-group half">
-              <label class="form-label" :class="{ dark: isDark }">API Hash</label>
-              <div class="input-with-icon">
-                <input
-                  v-model="telegramForm.apiHash"
-                  :type="showTelegramHash ? 'text' : 'password'"
-                  placeholder="32位十六进制字符串"
-                  class="form-input"
-                  :class="{ dark: isDark }"
-                />
-                <button
-                  type="button"
-                  class="toggle-visibility"
-                  :class="{ dark: isDark }"
-                  @click="showTelegramHash = !showTelegramHash"
-                >
-                  <svg v-if="showTelegramHash" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                    <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/>
-                    <line x1="1" y1="1" x2="23" y2="23"/>
-                  </svg>
-                  <svg v-else viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
-                    <circle cx="12" cy="12" r="3"/>
-                  </svg>
-                </button>
+            <div class="accordion-body" :class="{ expanded: tgAccordion.bot }">
+              <div class="accordion-content">
+                <div class="mode-section-hint" :class="{ dark: isDark }">只需 Bot Token，从 @BotFather 获取，无需申请开发者 API</div>
+                <div class="form-group">
+                  <label class="form-label" :class="{ dark: isDark }">Bot Token</label>
+                  <div class="token-input-wrapper">
+                    <textarea
+                      ref="botTokenTextarea"
+                      v-model="telegramForm.botToken"
+                      :class="{ dark: isDark, 'token-masked': !showTelegramHash && telegramForm.botToken }"
+                      :placeholder="botStatus.configured && !telegramForm.botToken ? 'Token 已配置，留空保持不变' : '从 @BotFather 获取，如：123456:ABC-DEF...'"
+                      class="form-input token-input"
+                      :disabled="botStatus.connected"
+                      rows="1"
+                    ></textarea>
+                    <button
+                      type="button"
+                      class="toggle-visibility"
+                      :class="{ dark: isDark }"
+                      @click="showTelegramHash = !showTelegramHash"
+                    >
+                      <svg v-if="showTelegramHash" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/>
+                        <line x1="1" y1="1" x2="23" y2="23"/>
+                      </svg>
+                      <svg v-else viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+                        <circle cx="12" cy="12" r="3"/>
+                      </svg>
+                    </button>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
 
-          <div class="form-group">
-            <label class="form-label" :class="{ dark: isDark }">手机号</label>
-            <div class="input-with-button">
-              <input
-                v-model="telegramForm.phone"
-                type="text"
-                placeholder="+8613800138000"
-                class="form-input"
-                :class="{ dark: isDark }"
-                :disabled="telegramLoginStep !== 'phone'"
-              />
-              <button
-                v-if="telegramLoginStep === 'phone' && !telegramStatus.connected"
-                class="btn btn-secondary btn-sm"
-                @click="sendTelegramCode"
-                :disabled="telegramLoading || !telegramForm.phone"
-              >
-                {{ telegramLoading ? '发送中...' : '获取验证码' }}
-              </button>
+          <!-- 👤 用户模式 折叠区 -->
+          <div class="accordion" :class="{ dark: isDark }">
+            <div class="accordion-header" @click="tgAccordion.user = !tgAccordion.user">
+              <div class="accordion-header-left">
+                <span class="accordion-icon" :class="{ expanded: tgAccordion.user }">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
+                </span>
+                <span class="accordion-title">👤 用户模式</span>
+              </div>
+              <div class="accordion-header-right">
+                <div v-if="userStatus.connected && userStatus.user" class="user-info-inline" :class="{ dark: isDark }">
+                  <span class="user-name">{{ userStatus.user.firstName || userStatus.user.username || userStatus.user.phone }}</span>
+                  <span
+                    class="logout-link"
+                    @click.stop="userLogout"
+                    :class="{ disabled: telegramLoading }"
+                  >登出</span>
+                </div>
+                <div v-else class="mode-status-tag" :class="{ dark: isDark }">{{ userStatusText }}</div>
+              </div>
+            </div>
+            <div class="accordion-body" :class="{ expanded: tgAccordion.user }">
+              <div class="accordion-content">
+                <div class="mode-section-hint" :class="{ dark: isDark }">需要 API ID/Hash，从 my.telegram.org 获取，功能更完整</div>
+                <div class="form-row">
+                  <div class="form-group half">
+                    <label class="form-label" :class="{ dark: isDark }">API ID</label>
+                    <input
+                      v-model="telegramForm.apiId"
+                      type="text"
+                      placeholder="从 my.telegram.org 获取"
+                      class="form-input"
+                      :class="{ dark: isDark }"
+                      :disabled="userStatus.connected"
+                    />
+                  </div>
+                  <div class="form-group half">
+                    <label class="form-label" :class="{ dark: isDark }">API Hash</label>
+                    <div class="input-with-icon">
+                      <input
+                        v-model="telegramForm.apiHash"
+                        :type="showTelegramHash ? 'text' : 'password'"
+                        placeholder="32位十六进制字符串"
+                        class="form-input"
+                        :class="{ dark: isDark }"
+                        :disabled="userStatus.connected"
+                      />
+                      <button
+                        type="button"
+                        class="toggle-visibility"
+                        :class="{ dark: isDark }"
+                        @click="showTelegramHash = !showTelegramHash"
+                      >
+                        <svg v-if="showTelegramHash" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                          <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/>
+                          <line x1="1" y1="1" x2="23" y2="23"/>
+                        </svg>
+                        <svg v-else viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                          <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+                          <circle cx="12" cy="12" r="3"/>
+                        </svg>
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="form-group">
+                  <label class="form-label" :class="{ dark: isDark }">手机号</label>
+                  <div class="input-with-button">
+                    <input
+                      v-model="telegramForm.phone"
+                      type="text"
+                      placeholder="+8613800138000"
+                      class="form-input"
+                      :class="{ dark: isDark }"
+                      :disabled="telegramLoginStep !== 'phone'"
+                    />
+                    <button
+                      v-if="telegramLoginStep === 'phone' && !userStatus.connected"
+                      class="btn btn-secondary btn-sm"
+                      @click="sendTelegramCode"
+                      :disabled="telegramLoading || !telegramForm.phone"
+                    >
+                      {{ telegramLoading ? '发送中...' : '获取验证码' }}
+                    </button>
+                  </div>
+                </div>
+
+                <div v-if="!userStatus.connected" class="telegram-login-section">
+                  <div v-if="telegramLoginStep === 'code'" class="form-group">
+                    <label class="form-label" :class="{ dark: isDark }">验证码</label>
+                    <input
+                      v-model="telegramForm.code"
+                      type="text"
+                      placeholder="输入收到的验证码"
+                      class="form-input"
+                      :class="{ dark: isDark }"
+                    />
+                  </div>
+                  <div v-if="telegramLoginStep === 'password'" class="form-group">
+                    <label class="form-label" :class="{ dark: isDark }">两步验证密码</label>
+                    <input
+                      v-model="telegramForm.password"
+                      type="password"
+                      placeholder="输入两步验证密码"
+                      class="form-input"
+                      :class="{ dark: isDark }"
+                    />
+                  </div>
+                  <div v-if="telegramLoginStep !== 'phone'" class="telegram-actions">
+                    <button
+                      v-if="telegramLoginStep === 'code'"
+                      class="btn btn-primary"
+                      @click="signInTelegram"
+                      :disabled="telegramLoading || !telegramForm.code"
+                    >
+                      {{ telegramLoading ? '登录中...' : '确认登录' }}
+                    </button>
+                    <button
+                      v-if="telegramLoginStep === 'password'"
+                      class="btn btn-primary"
+                      @click="signInTelegramWithPassword"
+                      :disabled="telegramLoading || !telegramForm.password"
+                    >
+                      {{ telegramLoading ? '验证中...' : '提交验证' }}
+                    </button>
+                    <button class="btn btn-secondary" @click="resetTelegramLogin">
+                      返回
+                    </button>
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
 
-          <div class="proxy-inline">
-            <div class="proxy-toggle">
-              <label class="form-label" :class="{ dark: isDark }">代理</label>
-              <label class="toggle-switch small">
-                <input type="checkbox" v-model="telegramForm.proxyEnabled" />
-                <span class="toggle-slider"></span>
-              </label>
+          <!-- 🔗 代理 折叠区 -->
+          <div class="accordion" :class="{ dark: isDark }">
+            <div class="accordion-header" @click="tgAccordion.proxy = !tgAccordion.proxy">
+              <div class="accordion-header-left">
+                <span class="accordion-icon" :class="{ expanded: tgAccordion.proxy }">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
+                </span>
+                <span class="accordion-title">🔗 代理</span>
+              </div>
+              <div class="accordion-header-right">
+                <span v-if="telegramForm.proxyEnabled && telegramForm.proxyUrl" class="mode-status-tag connected" :class="{ dark: isDark }">已启用</span>
+                <span v-else class="mode-status-tag" :class="{ dark: isDark }">未启用</span>
+              </div>
             </div>
-            <input
-              v-model="telegramForm.proxyUrl"
-              type="text"
-              placeholder="socks5://user:pass@127.0.0.1:1080"
-              class="form-input proxy-input"
-              :class="{ dark: isDark }"
-              :disabled="!telegramForm.proxyEnabled"
-            />
+            <div class="accordion-body" :class="{ expanded: tgAccordion.proxy }">
+              <div class="accordion-content">
+                <div class="proxy-inline">
+                  <div class="proxy-toggle">
+                    <label class="form-label" :class="{ dark: isDark }">启用代理</label>
+                    <label class="toggle-switch small">
+                      <input type="checkbox" v-model="telegramForm.proxyEnabled" />
+                      <span class="toggle-slider"></span>
+                    </label>
+                  </div>
+                  <input
+                    v-model="telegramForm.proxyUrl"
+                    type="text"
+                    placeholder="socks5://user:pass@127.0.0.1:1080"
+                    class="form-input proxy-input"
+                    :class="{ dark: isDark }"
+                    :disabled="!telegramForm.proxyEnabled"
+                  />
+                </div>
+              </div>
+            </div>
           </div>
 
-          <div v-if="!telegramStatus.connected" class="telegram-login-section">
-            <div v-if="telegramLoginStep === 'code'" class="form-group">
-              <label class="form-label" :class="{ dark: isDark }">验证码</label>
-              <input
-                v-model="telegramForm.code"
-                type="text"
-                placeholder="输入收到的验证码"
-                class="form-input"
-                :class="{ dark: isDark }"
-              />
+          <!-- 🛡️ 权限 折叠区 -->
+          <div class="accordion" :class="{ dark: isDark }">
+            <div class="accordion-header" @click="tgAccordion.permission = !tgAccordion.permission">
+              <div class="accordion-header-left">
+                <span class="accordion-icon" :class="{ expanded: tgAccordion.permission }">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
+                </span>
+                <span class="accordion-title">🛡️ 权限</span>
+              </div>
+              <div class="accordion-header-right">
+                <span v-if="telegramPermissionForm.adminIds" class="mode-status-tag connected" :class="{ dark: isDark }">已配置</span>
+                <span v-else class="mode-status-tag" :class="{ dark: isDark }">未配置</span>
+              </div>
             </div>
-            <div v-if="telegramLoginStep === 'password'" class="form-group">
-              <label class="form-label" :class="{ dark: isDark }">两步验证密码</label>
-              <input
-                v-model="telegramForm.password"
-                type="password"
-                placeholder="输入两步验证密码"
-                class="form-input"
-                :class="{ dark: isDark }"
-              />
+            <div class="accordion-body" :class="{ expanded: tgAccordion.permission }">
+              <div class="accordion-content">
+                <div class="form-group">
+                  <label class="form-label" :class="{ dark: isDark }">管理员 ID</label>
+                  <input
+                    v-model="telegramPermissionForm.adminIds"
+                    type="text"
+                    placeholder="多个ID用逗号分隔，如: 12345678,87654321"
+                    class="form-input"
+                    :class="{ dark: isDark }"
+                  />
+                </div>
+                <div class="form-group">
+                  <label class="form-label" :class="{ dark: isDark }">白名单群组/频道</label>
+                  <input
+                    v-model="telegramPermissionForm.whitelistChats"
+                    type="text"
+                    placeholder="多个ID用逗号分隔，如: -1001234567890,-1009876543210"
+                    class="form-input"
+                    :class="{ dark: isDark }"
+                  />
+                </div>
+                <div class="form-group">
+                  <label class="form-label" :class="{ dark: isDark }">通知群组</label>
+                  <input
+                    v-model="telegramPermissionForm.notifyChat"
+                    type="text"
+                    placeholder="如: -1001234567890"
+                    class="form-input"
+                    :class="{ dark: isDark }"
+                  />
+                </div>
+              </div>
             </div>
-            <div v-if="telegramLoginStep !== 'phone'" class="telegram-actions">
-              <button
-                v-if="telegramLoginStep === 'code'"
-                class="btn btn-primary"
-                @click="signInTelegram"
-                :disabled="telegramLoading || !telegramForm.code"
-              >
-                {{ telegramLoading ? '登录中...' : '确认登录' }}
-              </button>
-              <button
-                v-if="telegramLoginStep === 'password'"
-                class="btn btn-primary"
-                @click="signInTelegramWithPassword"
-                :disabled="telegramLoading || !telegramForm.password"
-              >
-                {{ telegramLoading ? '验证中...' : '提交验证' }}
-              </button>
-              <button class="btn btn-secondary" @click="resetTelegramLogin">
-                返回
-              </button>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <!-- Telegram权限配置卡片 -->
-      <div class="settings-card" :class="{ dark: isDark }">
-        <div class="card-header">
-          <div class="card-header-left">
-            <div class="card-header-icon telegram-icon-header">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
-              </svg>
-            </div>
-            <div class="card-header-info">
-              <h3 class="card-title" :class="{ dark: isDark }">Telegram 权限配置</h3>
-            </div>
-          </div>
-        </div>
-        <div class="card-content">
-          <div class="form-group">
-            <label class="form-label" :class="{ dark: isDark }">管理员 ID</label>
-            <input
-              v-model="telegramPermissionForm.adminIds"
-              type="text"
-              placeholder="多个ID用逗号分隔，如: 12345678,87654321"
-              class="form-input"
-              :class="{ dark: isDark }"
-            />
-          </div>
-
-          <div class="form-group">
-            <label class="form-label" :class="{ dark: isDark }">白名单群组/频道</label>
-            <input
-              v-model="telegramPermissionForm.whitelistChats"
-              type="text"
-              placeholder="多个ID用逗号分隔，如: -1001234567890,-1009876543210"
-              class="form-input"
-              :class="{ dark: isDark }"
-            />
-          </div>
-
-          <div class="form-group">
-            <label class="form-label" :class="{ dark: isDark }">通知群组</label>
-            <input
-              v-model="telegramPermissionForm.notifyChat"
-              type="text"
-              placeholder="如: -1001234567890"
-              class="form-input"
-              :class="{ dark: isDark }"
-            />
           </div>
         </div>
       </div>
@@ -756,7 +835,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, reactive, onMounted, onUnmounted, watch } from 'vue'
+import { computed, ref, reactive, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import { useSettings } from '~/composables/useSettings'
 
 const { loadSettings: loadSharedSettings, updateSettingsData } = useSettings()
@@ -795,10 +874,22 @@ interface SettingsResponse {
 interface TelegramConfigResponse {
   success: boolean
   data?: {
-    configured: boolean
-    connected: boolean
-    status: string
-    error?: string
+    /* Bot 模式 */
+    botConfigured: boolean
+    botConnected: boolean
+    botStatus: string
+    botInfo?: {
+      id: number
+      username: string
+      firstName: string
+    } | null
+    botToken?: string
+
+    /* User 模式 */
+    userConfigured: boolean
+    userConnected: boolean
+    userStatus: string
+    userError?: string
     user?: {
       id: string
       username?: string
@@ -806,7 +897,10 @@ interface TelegramConfigResponse {
     }
     apiId?: string
     apiHash?: string
+    apiHashConfigured?: boolean
     phone?: string
+
+    /* 通用配置 */
     proxyEnabled?: boolean
     proxyUrl?: string
     adminIds?: string
@@ -896,9 +990,26 @@ const telegramForm = reactive({
   phone: '',
   code: '',
   password: '',
+  botToken: '',
   proxyEnabled: false,
   proxyUrl: ''
 })
+
+/**
+ * 自动调整 Bot Token 输入框高度
+ * 根据内容动态撑开 textarea，避免内容被截断
+ */
+function resizeBotTokenTextarea() {
+  nextTick(() => {
+    if (botTokenTextarea.value) {
+      botTokenTextarea.value.style.height = 'auto'
+      botTokenTextarea.value.style.height = botTokenTextarea.value.scrollHeight + 'px'
+    }
+  })
+}
+
+/** Bot Token 内容变化时，自动调整输入框高度 */
+watch(() => telegramForm.botToken, resizeBotTokenTextarea)
 
 const telegramPermissionForm = reactive({
   adminIds: '',
@@ -906,7 +1017,24 @@ const telegramPermissionForm = reactive({
   notifyChat: ''
 })
 
-const telegramStatus = ref<{
+/** Bot 模式连接状态 */
+const botStatus = ref<{
+  configured: boolean
+  connected: boolean
+  status: string
+  botInfo?: {
+    id: number
+    username: string
+    firstName: string
+  } | null
+}>({
+  configured: false,
+  connected: false,
+  status: 'disconnected'
+})
+
+/** User 模式连接状态 */
+const userStatus = ref<{
   configured: boolean
   connected: boolean
   status: string
@@ -927,9 +1055,23 @@ const telegramStatus = ref<{
 const telegramLoginStep = ref<'phone' | 'code' | 'password'>('phone')
 const telegramLoading = ref(false)
 const showTelegramHash = ref(false)
+const botTokenTextarea = ref<HTMLTextAreaElement | null>(null)
 
-const telegramStatusText = computed(() => {
-  switch (telegramStatus.value.status) {
+/**
+ * Telegram 手风琴折叠状态
+ * 默认 Bot 和 User 折叠，代理和权限折叠
+ * 已连接的模式自动展开
+ */
+const tgAccordion = reactive({
+  bot: false,
+  user: false,
+  proxy: false,
+  permission: false
+})
+
+/** User 模式状态文本 */
+const userStatusText = computed(() => {
+  switch (userStatus.value.status) {
     case 'connecting':
       return '连接中'
     case 'waiting_code':
@@ -1150,16 +1292,28 @@ async function loadTelegramConfig() {
     const tgResponse = await $fetch<TelegramConfigResponse>('/api/telegram/config')
 
     if (tgResponse.success && tgResponse.data) {
-      telegramStatus.value = {
-        configured: tgResponse.data.configured,
-        connected: tgResponse.data.connected,
-        status: tgResponse.data.status,
-        error: tgResponse.data.error,
+      /* Bot 模式状态 */
+      botStatus.value = {
+        configured: tgResponse.data.botConfigured,
+        connected: tgResponse.data.botConnected,
+        status: tgResponse.data.botStatus,
+        botInfo: tgResponse.data.botInfo
+      }
+
+      /* User 模式状态 */
+      userStatus.value = {
+        configured: tgResponse.data.userConfigured,
+        connected: tgResponse.data.userConnected,
+        status: tgResponse.data.userStatus,
+        error: tgResponse.data.userError,
         user: tgResponse.data.user
       }
+
+      /* 表单数据 */
       telegramForm.apiId = tgResponse.data.apiId || ''
       telegramForm.apiHash = tgResponse.data.apiHash || ''
       telegramForm.phone = tgResponse.data.phone || ''
+      telegramForm.botToken = tgResponse.data.botToken || ''
       telegramForm.proxyEnabled = tgResponse.data.proxyEnabled || false
       telegramForm.proxyUrl = tgResponse.data.proxyUrl || ''
 
@@ -1167,16 +1321,19 @@ async function loadTelegramConfig() {
       telegramPermissionForm.whitelistChats = tgResponse.data.whitelistChats || ''
       telegramPermissionForm.notifyChat = tgResponse.data.notifyChat || ''
 
-      if (tgResponse.data.connected) {
+      /* User 模式登录步骤 */
+      if (tgResponse.data.userConnected) {
         telegramLoginStep.value = 'phone'
         telegramForm.code = ''
         telegramForm.password = ''
         stopTelegramStatusPolling()
-      } else if (tgResponse.data.status === 'waiting_password') {
+      } else if (tgResponse.data.userStatus === 'waiting_password') {
         telegramLoginStep.value = 'password'
-      } else if (tgResponse.data.status === 'waiting_code') {
+      } else if (tgResponse.data.userStatus === 'waiting_code') {
         telegramLoginStep.value = 'phone'
       }
+
+      /* 手风琴默认全部折叠 */
     }
   } catch (e: any) {
     console.error('加载 Telegram 配置失败:', e)
@@ -1191,7 +1348,7 @@ function startTelegramStatusPolling() {
   telegramStatusPollingTimer = setInterval(async () => {
     await loadTelegramConfig()
 
-    if (telegramStatus.value.connected || telegramStatus.value.status !== 'connecting') {
+    if (userStatus.value.connected || userStatus.value.status !== 'connecting') {
       stopTelegramStatusPolling()
     }
   }, 1500)
@@ -1252,7 +1409,7 @@ async function loadSettings() {
 
     await loadTelegramConfig()
 
-    if (telegramStatus.value.status === 'connecting') {
+    if (userStatus.value.status === 'connecting') {
       startTelegramStatusPolling()
     }
 
@@ -1518,6 +1675,7 @@ async function saveAllConfig() {
           apiId: telegramForm.apiId,
           apiHash: telegramForm.apiHash,
           phone: telegramForm.phone,
+          botToken: telegramForm.botToken,
           proxyEnabled: telegramForm.proxyEnabled,
           proxyUrl: telegramForm.proxyUrl,
           adminIds: telegramPermissionForm.adminIds,
@@ -1538,10 +1696,56 @@ async function saveAllConfig() {
         pan115OpenToken: pan115Form.openToken.trim()
       })
 
-      telegramStatus.value.configured = !!(telegramForm.apiId && telegramForm.apiHash)
+      /* 更新配置状态 */
+      botStatus.value.configured = !!telegramForm.botToken
+      userStatus.value.configured = !!(telegramForm.apiId && telegramForm.apiHash)
 
       message.value = '配置保存成功'
       messageType.value = 'success'
+
+      /* 保存后自动初始化已配置但未连接的模式 */
+      const initPromises: Promise<any>[] = []
+
+      if (telegramForm.botToken && !botStatus.value.connected) {
+        initPromises.push(
+          ($fetch('/api/telegram/config', {
+            method: 'POST',
+            body: { action: 'initBot' }
+          }) as any) as Promise<any>
+        )
+      }
+
+      if (telegramForm.apiId && telegramForm.apiHash && !userStatus.value.connected) {
+        initPromises.push(
+          ($fetch('/api/telegram/config', {
+            method: 'POST',
+            body: { action: 'init' }
+          }) as any) as Promise<any>
+        )
+      }
+
+      if (initPromises.length > 0) {
+        const results = await Promise.allSettled(initPromises)
+        const errors: string[] = []
+
+        results.forEach((result) => {
+          if (result.status === 'fulfilled') {
+            const data = result.value as any
+            if (data && !data.success) {
+              errors.push(data.error || '未知错误')
+            }
+          } else {
+            errors.push(result.reason?.message || '请求失败')
+          }
+        })
+
+        await loadTelegramConfig()
+
+        if (errors.length > 0) {
+          message.value = `配置已保存，部分连接失败: ${errors.join('; ')}`
+          messageType.value = 'warning'
+        }
+      }
 
       if (response.serverName) {
         connectionStatus.show = true
@@ -1766,30 +1970,59 @@ async function generateStrm() {
   }
 }
 
-async function telegramLogout() {
+/** 断开 Bot 模式连接 */
+async function botDisconnect() {
   telegramLoading.value = true
   try {
     const response = await $fetch('/api/telegram/config', {
       method: 'POST',
-      body: {
-        action: 'logout'
-      }
+      body: { action: 'disconnectBot' }
     }) as any
-    
+
+    if (response.success) {
+      message.value = 'Bot 已断开'
+      messageType.value = 'success'
+      botStatus.value = {
+        configured: true,
+        connected: false,
+        status: 'disconnected',
+        botInfo: null
+      }
+    } else {
+      message.value = response.error || '操作失败'
+      messageType.value = 'error'
+    }
+  } catch (e: any) {
+    message.value = e.message || '操作失败'
+    messageType.value = 'error'
+  } finally {
+    telegramLoading.value = false
+  }
+}
+
+/** 断开 User 模式连接 */
+async function userLogout() {
+  telegramLoading.value = true
+  try {
+    const response = await $fetch('/api/telegram/config', {
+      method: 'POST',
+      body: { action: 'logout' }
+    }) as any
+
     if (response.success) {
       message.value = '已登出'
       messageType.value = 'success'
-      telegramStatus.value = {
+      userStatus.value = {
         configured: true,
         connected: false,
         status: 'disconnected'
       }
     } else {
-      message.value = response.error || '登出失败'
+      message.value = response.error || '操作失败'
       messageType.value = 'error'
     }
   } catch (e: any) {
-    message.value = e.message || '登出失败'
+    message.value = e.message || '操作失败'
     messageType.value = 'error'
   } finally {
     telegramLoading.value = false
@@ -2096,6 +2329,200 @@ watch(currentDirPickerValue, (newVal) => {
   flex-shrink: 0;
 }
 
+/* 模式状态标签 */
+.mode-status-tag {
+  font-size: 12px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  background: #f1f5f9;
+  color: #94a3b8;
+}
+
+.mode-status-tag.dark {
+  background: #334155;
+  color: #64748b;
+}
+
+.mode-status-tag.connected {
+  background: #f0fdf4;
+  color: #16a34a;
+}
+
+.mode-status-tag.connected.dark {
+  background: #14532d;
+  color: #4ade80;
+}
+
+/* 手风琴折叠组件 */
+.accordion {
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  overflow: hidden;
+  margin-bottom: 8px;
+  background: #f8fafc;
+}
+
+.accordion.dark {
+  border-color: #334155;
+  background: #1e293b;
+}
+
+.accordion:last-child {
+  margin-bottom: 0;
+}
+
+.accordion-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  cursor: pointer;
+  user-select: none;
+  transition: background 0.15s ease;
+}
+
+.accordion-header:hover {
+  background: rgba(59, 130, 246, 0.04);
+}
+
+.accordion.dark .accordion-header:hover {
+  background: rgba(96, 165, 250, 0.06);
+}
+
+.accordion-header-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.accordion-icon {
+  display: inline-flex;
+  width: 18px;
+  height: 18px;
+  transition: transform 0.2s ease;
+  color: #94a3b8;
+}
+
+.accordion.dark .accordion-icon {
+  color: #64748b;
+}
+
+.accordion-icon.expanded {
+  transform: rotate(180deg);
+}
+
+.accordion-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: #334155;
+}
+
+.accordion.dark .accordion-title {
+  color: #e2e8f0;
+}
+
+.accordion-header-right {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* 手风琴折叠体（CSS 过渡动画） */
+.accordion-body {
+  max-height: 0;
+  overflow: hidden;
+  transition: max-height 0.3s ease;
+}
+
+.accordion-body.expanded {
+  max-height: 600px;
+}
+
+.accordion-content {
+  padding: 0 14px 14px;
+}
+
+.mode-section-hint {
+  font-size: 12px;
+  color: #94a3b8;
+  line-height: 1.4;
+  margin-bottom: 10px;
+}
+
+.mode-section-hint.dark {
+  color: #64748b;
+}
+
+/* Bot 信息内联显示 */
+.bot-info-inline {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.bot-info-inline.dark {
+}
+
+/* User 信息内联显示（含登出按钮） */
+.user-info-inline {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.user-info-inline.dark {
+}
+
+.user-name {
+  font-weight: 600;
+  color: #16a34a;
+  font-size: 13px;
+}
+
+/* 登出链接（纯文字，与行内文字同高） */
+.logout-link {
+  font-size: 12px;
+  color: #ef4444;
+  cursor: pointer;
+  padding: 0 4px;
+  line-height: 1.2;
+}
+
+.logout-link:hover {
+  text-decoration: underline;
+  color: #dc2626;
+}
+
+.logout-link.disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.bot-info-display {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 12px;
+  background: #f0fdf4;
+  border-radius: 8px;
+  margin-top: 4px;
+}
+
+.bot-info-display.dark {
+  background: #14532d;
+}
+
+.bot-name {
+  font-weight: 600;
+  color: #16a34a;
+  font-size: 14px;
+}
+
+.bot-id {
+  font-size: 12px;
+  color: #94a3b8;
+}
+
 .card-header-actions {
   flex-wrap: wrap;
 }
@@ -2246,6 +2673,35 @@ watch(currentDirPickerValue, (newVal) => {
 
 .input-with-icon .form-input {
   padding-right: 42px;
+}
+
+.token-input-wrapper {
+  position: relative;
+}
+
+.token-input-wrapper .toggle-visibility {
+  position: absolute;
+  right: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+}
+
+.token-input {
+  font-family: 'SF Mono', 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+  font-size: 12px;
+  letter-spacing: 0.3px;
+  padding-right: 42px;
+  resize: none;
+  overflow: hidden;
+  min-height: 40px;
+  line-height: 1.5;
+  word-break: break-all;
+  overflow-wrap: break-word;
+  white-space: pre-wrap;
+}
+
+.token-masked {
+  -webkit-text-security: disc;
 }
 
 .input-with-btn {

@@ -40,6 +40,8 @@ export const CONFIG_DEFINITIONS: Record<string, { label: string; description?: s
   telegram_api_hash: { label: 'Telegram API Hash', description: '从 my.telegram.org 获取的 API Hash' },
   telegram_phone: { label: 'Telegram 手机号', description: 'Telegram 账号手机号（含国际区号）' },
   telegram_session_string: { label: 'Telegram Session', description: 'Telegram 登录会话字符串' },
+  telegram_mode: { label: 'Telegram 模式（已弃用）', description: '双模式并行后不再使用，保留兼容旧数据' },
+  telegram_bot_token: { label: 'Telegram Bot Token', description: '从 @BotFather 获取的 Bot Token' },
   telegram_proxy_enabled: { label: 'Telegram 代理开关', description: '是否启用代理连接 Telegram' },
   telegram_proxy_url: { label: 'Telegram 代理地址', description: 'SOCKS5 代理地址，格式: socks5://[用户名:密码@]地址:端口' },
   telegram_admin_ids: { label: 'Telegram 管理员ID', description: '管理员用户ID列表，多个用逗号分隔' },
