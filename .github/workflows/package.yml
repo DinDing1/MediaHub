@@ -143,6 +143,10 @@ jobs:
           sed -i "s/^version=.*/version=${{ needs.prepare.outputs.version }}/" MediaHub/mediahub/manifest
           sed -i "s/^platform=.*/platform=${{ matrix.platform }}/" MediaHub/mediahub/manifest
 
+      - name: 确保 cmd 脚本使用 LF 行尾
+        run: |
+          sed -i 's/\r$//' MediaHub/mediahub/cmd/*
+
       - name: 设置 fnpack 可执行权限
         run: |
           chmod +x ${{ matrix.fnpack }}

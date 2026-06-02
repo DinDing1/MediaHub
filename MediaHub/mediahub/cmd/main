@@ -63,10 +63,6 @@ start_process() {
         return 1
     fi
 
-    log_msg "Resolved app root: ${APP_ROOT}"
-    log_msg "Resolved data dir: ${DATA_DIR}"
-    log_msg "Accessible paths: ${TRIM_DATA_ACCESSIBLE_PATHS:-none}"
-    log_msg "Share paths: ${TRIM_DATA_SHARE_PATHS:-none}"
     log_msg "Starting MediaHub..."
 
     (
@@ -116,16 +112,10 @@ stop_process() {
 
 case "$1" in
 start)
-    if start_process; then
-        exit 0
-    fi
-    exit 1
+    start_process
     ;;
 stop)
-    if stop_process; then
-        exit 0
-    fi
-    exit 1
+    stop_process
     ;;
 status)
     if status; then
