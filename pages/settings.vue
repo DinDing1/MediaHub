@@ -637,7 +637,7 @@
               </svg>
             </div>
             <div class="card-header-info">
-              <h3 class="card-title" :class="{ dark: isDark }">微信配置</h3>
+              <h3 class="card-title" :class="{ dark: isDark }">WeChat</h3>
             </div>
           </div>
           <div class="telegram-status-header">

@@ -506,8 +506,13 @@ export async function sendWechatNotification(message: string, imageUrl?: string)
 
   try {
     if (imageUrl) {
-      /* 有图片时，发送图片+文字 */
-      await state.bot.send(notifyUserId, { url: imageUrl, caption: plainMessage })
+      try {
+        await state.bot.send(notifyUserId, { url: imageUrl, caption: plainMessage })
+      } catch (imageError: any) {
+        /* 图片发送失败（如 URL 404），回退到纯文字发送 */
+        log.warn('WeChat', `图片发送失败，回退到纯文字: ${imageError.message}`)
+        await state.bot.send(notifyUserId, plainMessage)
+      }
     } else {
       await state.bot.send(notifyUserId, plainMessage)
     }

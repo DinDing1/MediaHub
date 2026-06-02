@@ -10,5 +10,12 @@ export default defineNuxtPlugin(() => {
     import('~/server/utils/emby/media_info').then(({ initMediaInfoFollowQueue }) => {
       initMediaInfoFollowQueue()
     })
+    /* 启动时自动初始化 Telegram Bot 和 User 模式 */
+    import('~/server/utils/telegram/bot').then(({ initBot }) => {
+      initBot().catch(() => {})
+    })
+    import('~/server/utils/telegram/client').then(({ initTelegramClient }) => {
+      initTelegramClient().catch(() => {})
+    })
   }
 })

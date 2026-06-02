@@ -239,8 +239,31 @@ export function getBotLoginStatus(): {
 }
 
 /**
+ * 获取通知目标列表
+ * Bot 模式不需要通知群组，可以直接给管理员发私聊消息
+ * 优先使用通知群组，没有配置则给所有管理员发私聊
+ *
+ * @returns 通知目标 ID 列表
+ */
+function getNotifyTargets(): number[] {
+  const notifyChat = getSetting('telegram_notify_chat')
+  if (notifyChat) {
+    return [Number(notifyChat)]
+  }
+
+  /* 没有配置通知群组，给所有管理员发私聊 */
+  const adminIdsStr = getSetting('telegram_admin_ids') || ''
+  if (!adminIdsStr) return []
+
+  return adminIdsStr.split(',')
+    .map(id => parseInt(id.trim(), 10))
+    .filter(id => !isNaN(id))
+}
+
+/**
  * 通过 Bot 发送通知消息
  * 如果 Bot 未连接，会自动尝试初始化
+ * Bot 模式不需要通知群组，可以直接给管理员发私聊消息
  *
  * @param message 消息内容（支持 HTML 格式）
  * @param imageUrl 可选图片 URL，发送图片+文字
@@ -248,10 +271,10 @@ export function getBotLoginStatus(): {
 export async function sendBotNotification(message: string, imageUrl?: string): Promise<{ success: boolean; error?: string }> {
   const state = getGlobalState()
 
-  const notifyChat = getSetting('telegram_notify_chat')
-  if (!notifyChat) {
-    log.info('Telegram Bot', '未配置通知群组，跳过发送通知')
-    return { success: false, error: '未配置通知群组' }
+  const targets = getNotifyTargets()
+  if (targets.length === 0) {
+    log.info('Telegram Bot', '未配置通知群组和管理员ID，跳过发送通知')
+    return { success: false, error: '未配置通知群组和管理员ID' }
   }
 
   /* 如果 Bot 正在初始化，等待完成 */
@@ -277,17 +300,26 @@ export async function sendBotNotification(message: string, imageUrl?: string): P
   }
 
   try {
-    const chatId = Number(notifyChat)
-
-    if (imageUrl) {
-      await state.bot!.api.sendPhoto(chatId, imageUrl, {
-        caption: message,
-        parse_mode: 'HTML'
-      })
-    } else {
-      await state.bot!.api.sendMessage(chatId, message, {
-        parse_mode: 'HTML'
-      })
+    /* 向所有通知目标发送消息 */
+    for (const chatId of targets) {
+      if (imageUrl) {
+        try {
+          await state.bot!.api.sendPhoto(chatId, imageUrl, {
+            caption: message,
+            parse_mode: 'HTML'
+          })
+        } catch (photoError: any) {
+          /* 图片发送失败（如 URL 无效、404），回退到纯文字发送 */
+          log.warn('Telegram Bot', `图片发送失败，回退到纯文字: ${photoError.message}`)
+          await state.bot!.api.sendMessage(chatId, message, {
+            parse_mode: 'HTML'
+          })
+        }
+      } else {
+        await state.bot!.api.sendMessage(chatId, message, {
+          parse_mode: 'HTML'
+        })
+      }
     }
 
     log.success('Telegram Bot', '通知消息发送成功')

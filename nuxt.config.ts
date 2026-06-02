@@ -32,7 +32,17 @@ export default defineNuxtConfig({
       ]
     }
   },
+  vite: {
+    esbuild: {
+      target: 'es2020'
+    }
+  },
   nitro: {
+    esbuild: {
+      options: {
+        target: 'es2020'
+      }
+    },
     routeRules: {
       '/**': {
         headers: {

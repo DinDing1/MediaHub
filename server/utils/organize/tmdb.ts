@@ -72,16 +72,13 @@ function getTmdbBaseUrl(): string {
 
 /**
  * 获取TMDB图片基础URL
- * 如果配置了代理地址，则使用代理地址，否则使用默认图片域名
+ * TMDB的图片域名（image.tmdb.org）和API域名（api.themoviedb.org）不同，
+ * 代理地址仅用于API请求，图片URL始终使用官方图片域名
  * 返回的URL已包含图片路径 /t/p
- * 
+ *
  * @returns TMDB图片完整URL（含/t/p路径）
  */
 function getTmdbImageBaseUrl(): string {
-  const proxyHost = getTmdbProxyHost()
-  if (proxyHost) {
-    return `${proxyHost}${TMDB_IMAGE_PATH}`
-  }
   return `${DEFAULT_TMDB_IMAGE_HOST}${TMDB_IMAGE_PATH}`
 }
 

@@ -50,7 +50,9 @@ function isWhitelistedChat(chatId: any): boolean {
   return whitelist.length === 0 || whitelist.includes(id)
 }
 
-const HELP_TEXT = '👋 你好！我是媒体管理机器人。\n\n可用命令：\n/start - 显示帮助信息\n/strm115 - 生成 STRM 文件\n\n💡 发送115分享链接可自动转存到云盘'
+const HELP_TEXT_USER = '👋 你好！我是媒体管理机器人。\n\n可用命令：\n-start - 显示帮助信息\n-strm115 - 生成 STRM 文件\n\n💡 发送115分享链接可自动转存到云盘'
+
+const HELP_TEXT_BOT = '👋 你好！我是媒体管理机器人。\n\n可用命令：\n/start - 显示帮助信息\n/strm115 - 生成 STRM 文件\n\n💡 发送115分享链接可自动转存到云盘'
 
 interface CommandContext {
   chatId: any
@@ -65,7 +67,7 @@ const commands: Map<string, CommandHandler> = new Map()
 
 commands.set('start', async (ctx: CommandContext) => {
   await client?.sendMessage(ctx.chatId, {
-    message: HELP_TEXT
+    message: HELP_TEXT_USER
   })
   try {
     await ctx.message.delete()
@@ -222,7 +224,7 @@ export async function handleBotCommand(ctx: Context): Promise<void> {
   if (!commandName) return
 
   if (commandName === 'start') {
-    await ctx.reply(HELP_TEXT, { parse_mode: 'HTML' })
+    await ctx.reply(HELP_TEXT_BOT, { parse_mode: 'HTML' })
     log.info('Telegram Bot', `已响应 /start 命令，来自用户 ${fromId}`)
     return
   }

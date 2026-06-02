@@ -552,28 +552,65 @@ export async function disconnectClient(): Promise<void> {
 }
 
 /**
- * 发送通知消息（双模式路由）
- * 优先通过 Bot API 发送（更稳定），Bot 不可用时回退到 User Client
- * 两种模式都不可用时返回失败
+ * 发送通知消息（双模式独立并行）
+ * Bot 模式和 User 模式独立运行，互不影响：
+ * - Bot 模式：私聊发给管理员，如果配置了群组则同时发群组
+ * - User 模式：推送到指定群组
+ * 两种模式都配置时并行发送，任一成功即返回成功
  */
 export async function sendNotification(message: string, imageUrl?: string): Promise<{ success: boolean; error?: string }> {
-  /* 优先尝试 Bot 模式发送 */
   const botStatus = getBotLoginStatus()
-  if (botStatus.connected) {
-    const result = await sendBotNotification(message, imageUrl)
-    if (result.success) return result
-    log.warn('Telegram', `Bot 发送失败，尝试 User 模式: ${result.error}`)
+  const userAvailable = !!(client?.connected) || !!(getSetting('telegram_session_string'))
+
+  /* 如果两种模式都不可用，直接返回 */
+  if (!botStatus.connected && !userAvailable) {
+    return { success: false, error: 'Telegram 未配置' }
   }
 
-  /* Bot 不可用或发送失败，回退到 User 模式 */
+  /* 收集发送结果 */
+  const results: Promise<{ success: boolean; error?: string }>[] = []
+
+  /* Bot 模式独立发送 */
+  if (botStatus.connected) {
+    results.push(sendBotNotification(message, imageUrl))
+  }
+
+  /* User 模式独立发送 */
+  if (userAvailable) {
+    results.push(sendUserNotification(message, imageUrl))
+  }
+
+  /* 并行发送，任一成功即返回成功 */
+  const settled = await Promise.allSettled(results)
+  const anySuccess = settled.some(r => r.status === 'fulfilled' && r.value.success)
+  const errors = settled
+    .filter((r): r is PromiseRejectedResult => r.status === 'rejected')
+    .map(r => String(r.reason))
+    .concat(
+      settled
+        .filter((r): r is PromiseFulfilledResult<{ success: boolean; error?: string }> => r.status === 'fulfilled' && !r.value.success)
+        .map(r => r.value.error || '未知错误')
+    )
+
+  if (anySuccess) {
+    return { success: true }
+  }
+
+  return { success: false, error: errors.join('; ') || '所有渠道发送失败' }
+}
+
+/**
+ * 通过 User 模式发送通知
+ * 推送到指定的通知群组
+ */
+async function sendUserNotification(message: string, imageUrl?: string): Promise<{ success: boolean; error?: string }> {
   getState()
-  
+
   const notifyChat = getSetting('telegram_notify_chat')
   if (!notifyChat) {
-    log.info('Telegram', '未配置通知群组，跳过发送通知')
     return { success: false, error: '未配置通知群组' }
   }
-  
+
   if (!client || !client.connected) {
     if (initializing) {
       let retries = 0
@@ -584,37 +621,55 @@ export async function sendNotification(message: string, imageUrl?: string): Prom
         retries++
       }
       if (initializing) {
-        log.error('Telegram', '客户端初始化超时')
         return { success: false, error: '客户端初始化超时' }
       }
     }
-    
+
     if (!client || !client.connected) {
       const initResult = await initTelegramClient()
       if (!initResult.success) {
-        log.error('Telegram', `客户端初始化失败: ${initResult.error}`)
         return { success: false, error: initResult.error }
       }
     }
   }
-  
+
   try {
+    /* 解析通知目标实体，解决 CHANNEL_INVALID 问题
+     * GramJS 需要先获取实体信息才能发送消息，
+     * 刚登录时缓存中没有频道数据，需要主动获取 */
+    let entity: any
+    try {
+      entity = await client!.getEntity(notifyChat)
+    } catch (entityError: any) {
+      log.warn('Telegram', `获取通知目标实体失败: ${entityError.message}`)
+      return { success: false, error: `无法找到通知目标: ${entityError.message}` }
+    }
+
     if (imageUrl) {
-      await client!.sendFile(notifyChat, {
-        file: imageUrl,
-        caption: message,
-        parseMode: 'html'
-      })
+      try {
+        await client!.sendFile(entity, {
+          file: imageUrl,
+          caption: message,
+          parseMode: 'html'
+        })
+      } catch (fileError: any) {
+        /* 图片发送失败（如 URL 无效、404），回退到纯文字发送 */
+        log.warn('Telegram', `图片发送失败，回退到纯文字: ${fileError.message}`)
+        await client!.sendMessage(entity, {
+          message,
+          parseMode: 'html'
+        })
+      }
     } else {
-      await client!.sendMessage(notifyChat, {
+      await client!.sendMessage(entity, {
         message,
         parseMode: 'html'
       })
     }
-    log.success('Telegram', '通知消息发送成功')
+    log.success('Telegram', 'User 模式通知消息发送成功')
     return { success: true }
   } catch (error: any) {
-    log.error('Telegram', `发送通知失败: ${error.message}`)
+    log.error('Telegram', `User 模式发送通知失败: ${error.message}`)
     return { success: false, error: error.message }
   }
 }
