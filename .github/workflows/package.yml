@@ -6,7 +6,7 @@ on:
       platform:
         description: '构建平台'
         required: true
-        default: 'all'
+        default: 'x86_64'
         type: choice
         options:
           - all
@@ -90,6 +90,7 @@ jobs:
     needs: prepare
     runs-on: ${{ matrix.runner }}
     strategy:
+      fail-fast: false
       matrix: ${{ fromJson(needs.prepare.outputs.matrix) }}
 
     steps:
