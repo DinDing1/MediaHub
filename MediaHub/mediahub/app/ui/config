@@ -9,7 +9,7 @@
             },
             "protocol": "",
             "title": "MediaHub",
-            "icon": "images/icon-{0}.png",
+            "icon": "images/icon_{0}.png",
             "type": "iframe",
             "port": "3030",
             "url": "/"

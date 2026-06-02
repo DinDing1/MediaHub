@@ -1,6 +1,10 @@
 #!/bin/bash
 
-APP_ROOT="${TRIM_APPDEST:-$(cd "$(dirname "$0")/.." && pwd)}"
+APP_ROOT="${TRIM_APPDEST}"
+if [ -z "${APP_ROOT}" ]; then
+    SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+    APP_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+fi
 NODE_BIN="${APP_ROOT}/runtime/bin/node"
 DATA_DIR="${TRIM_PKGVAR:-${APP_ROOT}/data}"
 PID_FILE="${DATA_DIR}/app.pid"
@@ -61,6 +65,8 @@ start_process() {
 
     log_msg "Resolved app root: ${APP_ROOT}"
     log_msg "Resolved data dir: ${DATA_DIR}"
+    log_msg "Accessible paths: ${TRIM_DATA_ACCESSIBLE_PATHS:-none}"
+    log_msg "Share paths: ${TRIM_DATA_SHARE_PATHS:-none}"
     log_msg "Starting MediaHub..."
 
     (
@@ -68,6 +74,7 @@ start_process() {
         export NODE_ENV=production
         export TRIM_PKGVAR="${DATA_DIR}"
         export TRIM_PKGDIR="${APP_ROOT}"
+        export TRIM_APPDEST="${APP_ROOT}"
         export MEDIA_PATH="${MEDIA_PATH}"
         export NITRO_PRESET=node-server
         export PORT="${TRIM_SERVICE_PORT:-3030}"
@@ -109,10 +116,16 @@ stop_process() {
 
 case "$1" in
 start)
-    start_process
+    if start_process; then
+        exit 0
+    fi
+    exit 1
     ;;
 stop)
-    stop_process
+    if stop_process; then
+        exit 0
+    fi
+    exit 1
     ;;
 status)
     if status; then
