@@ -155,7 +155,14 @@ jobs:
 
       - name: 重命名 fpk 包
         run: |
-          mv MediaHub/mediahub.fpk MediaHub/mediahub-${{ needs.prepare.outputs.version }}-${{ matrix.arch }}.fpk
+          FPK_FILE=$(find MediaHub -maxdepth 3 -type f -name '*.fpk' | head -n 1)
+          if [ -z "$FPK_FILE" ]; then
+            echo "未找到 fnpack 生成的 fpk 文件，当前 MediaHub 目录内容："
+            find MediaHub -maxdepth 3 -print
+            exit 1
+          fi
+          echo "找到 fpk 包: $FPK_FILE"
+          mv "$FPK_FILE" "MediaHub/mediahub-${{ needs.prepare.outputs.version }}-${{ matrix.arch }}.fpk"
 
       - name: 上传构建产物
         uses: actions/upload-artifact@v4
