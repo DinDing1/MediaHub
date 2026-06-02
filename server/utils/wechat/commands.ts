@@ -7,6 +7,10 @@
  *
  * 与 Telegram 模块保持一致的回复格式
  * 使用 @wechatbot/wechatbot 的 WeChatBot 和 IncomingMessage 类型
+ *
+ * 重要：回复消息时使用 bot.reply(msg, content) 而非 bot.send(userId, content)
+ * reply() 自动使用消息中的 context_token，更可靠
+ * send() 需要从 ContextStore 查找 token，可能已过期
  */
 
 import { WeChatBot, NoContextError, type IncomingMessage } from '@wechatbot/wechatbot'
@@ -57,17 +61,18 @@ commands.set('strm115', async (bot: WeChatBot, ctx: CommandContext) => {
   log.info('WeChat', `收到 -strm115 命令，来自用户 ${ctx.userId}`)
 
   try {
-    await bot.send(ctx.userId, '🔄 开始生成 STRM 文件...')
+    /* 使用 reply() 回复，自动使用消息中的 context_token */
+    await bot.reply(ctx.message, '🔄 开始生成 STRM 文件...')
 
     const result = await generateStrmFiles()
 
     if (!result.success) {
       log.error('WeChat', `STRM 生成失败: ${result.error}`)
-      await bot.send(ctx.userId, `❌ 生成失败: ${result.error}`)
+      await bot.reply(ctx.message, `❌ 生成失败: ${result.error}`)
     }
   } catch (e: any) {
     log.error('WeChat', `STRM 生成异常: ${e.message}`)
-    await bot.send(ctx.userId, `❌ 生成异常: ${e.message}`)
+    await bot.reply(ctx.message, `❌ 生成异常: ${e.message}`).catch(() => {})
   }
 })
 
@@ -95,7 +100,8 @@ export async function handleWechatCommand(bot: WeChatBot, msg: IncomingMessage):
     try {
       const response = await handler(bot, { userId, args, message: msg })
       if (response) {
-        await bot.send(userId, response)
+        /* 使用 reply() 回复，自动使用消息中的 context_token */
+        await bot.reply(msg, response)
       }
       log.info('WeChat', `已响应 -${commandName} 命令，来自用户 ${userId}`)
     } catch (error: any) {
@@ -104,11 +110,11 @@ export async function handleWechatCommand(bot: WeChatBot, msg: IncomingMessage):
         /* context_token 过期，无法回复，静默忽略 */
         return
       }
-      await bot.send(userId, `❌ 命令执行失败: ${error.message}`).catch(() => {})
+      await bot.reply(msg, `❌ 命令执行失败: ${error.message}`).catch(() => {})
     }
   } else {
     /* 未知命令，提示帮助信息 */
-    await bot.send(userId, '❓ 未知命令，发送 -start 查看帮助').catch(() => {})
+    await bot.reply(msg, '❓ 未知命令，发送 -start 查看帮助').catch(() => {})
   }
 }
 
@@ -134,7 +140,8 @@ export async function handleWechatShareLink(bot: WeChatBot, msg: IncomingMessage
   log.info('WeChat', `检测到115分享链接，来自用户 ${userId}`)
 
   try {
-    await bot.send(userId, '🔍 检测到115分享链接，开始转存...')
+    /* 使用 reply() 回复，自动使用消息中的 context_token */
+    await bot.reply(msg, '🔍 检测到115分享链接，开始转存...')
 
     const result = await saveShareLink(shareUrl)
 
@@ -146,17 +153,17 @@ export async function handleWechatShareLink(bot: WeChatBot, msg: IncomingMessage
         `💾 总大小: ${result.totalSize}`
       ].join('\n')
 
-      await bot.send(userId, replyText)
+      await bot.reply(msg, replyText)
       log.info('WeChat', `115分享转存成功: ${result.saveDir}, ${result.fileCount}个文件`)
     } else {
-      await bot.send(userId, `❌ 转存失败: ${result.error}`)
+      await bot.reply(msg, `❌ 转存失败: ${result.error}`)
       log.error('WeChat', `115分享转存失败: ${result.error}`)
     }
 
     return true
   } catch (error: any) {
     log.error('WeChat', `处理115分享链接异常: ${error.message}`)
-    await bot.send(userId, `❌ 处理分享链接失败: ${error.message}`)
+    await bot.reply(msg, `❌ 处理分享链接失败: ${error.message}`).catch(() => {})
     return false
   }
 }

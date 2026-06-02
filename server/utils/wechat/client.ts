@@ -9,8 +9,9 @@
  *
  * 使用 @wechatbot/wechatbot 实现
  * 新 SDK 优势：
- * - 自动管理 context_token（ContextStore），跨重启持久化
- * - 会话过期自动检测（session:expired 事件）
+ * - 自动管理 context_token（ContextStore），收到消息时自动更新并持久化
+ * - 会话过期自动重登录（session:expired → 自动 re-login → session:restored）
+ * - 长轮询本身就是保活，无需手动 sendTyping
  * - 可插拔存储（对接数据库）
  * - 中间件支持
  */
@@ -80,12 +81,6 @@ interface WechatGlobalState {
   userId: string | null
   /** 二维码 URL（Base64 Data URL） */
   qrcodeUrl: string | null
-  /** 保活定时器 */
-  keepaliveTimer: NodeJS.Timeout | null
-  /** 心跳连续失败次数 */
-  keepaliveFailures: number
-  /** 心跳当前间隔（正常/缩短） */
-  keepaliveInterval: 'normal' | 'retry'
 }
 
 /**
@@ -102,10 +97,7 @@ function getGlobalState(): WechatGlobalState {
       initializing: false,
       botId: null,
       userId: null,
-      qrcodeUrl: null,
-      keepaliveTimer: null,
-      keepaliveFailures: 0,
-      keepaliveInterval: 'normal' as const
+      qrcodeUrl: null
     }
   }
   return (globalThis as any).__wechatState__
@@ -141,16 +133,13 @@ export interface QRCodeResult {
 
 /**
  * 重置当前微信运行时状态，但不清空数据库中的配置
- * 主要用于会话过期、初始化失败、强制重新拉起二维码登录等场景
+ * 主要用于初始化失败、强制重新拉起二维码登录等场景
  */
 function resetWechatRuntimeState(clearQrcode = true): void {
   const state = getGlobalState()
-  stopKeepalive()
   state.bot = null
   state.connectionState = 'disconnected'
   state.initializing = false
-  state.keepaliveFailures = 0
-  state.keepaliveInterval = 'normal'
 
   if (clearQrcode) {
     state.qrcodeUrl = null
@@ -159,7 +148,7 @@ function resetWechatRuntimeState(clearQrcode = true): void {
 
 /**
  * 使数据库中的登录凭证失效
- * 当检测到会话已过期时，必须清掉旧凭证，避免后续仍不断尝试自动恢复
+ * 仅在用户主动登出时调用
  */
 function clearStoredWechatSession(): void {
   setSetting('wechat_token', '')
@@ -208,21 +197,33 @@ function createBot(): WeChatBot {
     }
   })
 
-  /* 会话过期事件：清除凭证，通知用户重新登录 */
+  /**
+   * 会话过期事件
+   * SDK 会自动尝试重登录（auth.clearAll → login({ force: true })）
+   * 这里只需通知用户，不要清凭证，否则会与 SDK 的自动重登录冲突
+   */
   bot.on('session:expired', () => {
-    log.warn('WeChat', '会话已过期，需要重新登录')
-    clearStoredWechatSession()
-    resetWechatRuntimeState()
-    notifyViaTelegram('⚠️ 微信会话已过期，请在设置页面重新扫码登录')
+    log.warn('WeChat', '会话已过期，SDK 正在尝试自动重登录...')
+    const state = getGlobalState()
+    state.connectionState = 'disconnected'
+    notifyViaTelegram('⚠️ 微信会话已过期，SDK 正在尝试自动重登录，如长时间未恢复请在设置页面重新扫码')
   })
 
-  /* 会话恢复事件 */
+  /**
+   * 会话恢复事件
+   * SDK 自动重登录成功后触发，更新本地状态和凭证
+   */
   bot.on('session:restored', (creds: Credentials) => {
     log.success('WeChat', `会话已恢复，BotID: ${creds.accountId}`)
     const state = getGlobalState()
     state.connectionState = 'connected'
     state.botId = creds.accountId
     state.userId = creds.userId
+
+    /* 同步凭证到数据库（兼容旧字段） */
+    setSetting('wechat_token', creds.token)
+    setSetting('wechat_bot_id', creds.accountId)
+    setSetting('wechat_user_id', creds.userId)
   })
 
   /* 错误事件 */
@@ -310,10 +311,13 @@ export async function initWechatClient(): Promise<{ success: boolean; error?: st
       setSetting('wechat_notify_user_id', creds.userId)
     }
 
-    /* 启动长轮询（后台运行，失败时自动回退状态） */
+    /**
+     * 启动长轮询（后台运行，失败时自动回退状态）
+     * 长轮询本身就是保活——每次轮询请求都会保持会话活跃
+     * SDK 的 ContextStore 在收到消息时自动更新 context_token 并持久化
+     * 因此无需手动 sendTyping 保活
+     */
     startBotPolling(bot)
-
-    startKeepalive()
 
     state.connectionState = 'connected'
     log.success('WeChat', `客户端初始化成功，BotID: ${creds.accountId}`)
@@ -367,7 +371,7 @@ export async function getLoginQRCode(forceRefresh = false): Promise<QRCodeResult
     /**
      * login({ force: true }) 在后台运行
      * onQrUrl 回调中生成二维码图片并保存到 state.qrcodeUrl
-     * 登录成功后自动保存凭证、启动长轮询和保活
+     * 登录成功后自动保存凭证、启动长轮询
      */
     bot.login({
       force: true,
@@ -418,7 +422,6 @@ export async function getLoginQRCode(forceRefresh = false): Promise<QRCodeResult
 
       /* 启动长轮询（后台运行，失败时自动回退状态） */
       startBotPolling(bot)
-      startKeepalive()
     }).catch((error: Error) => {
       resetWechatRuntimeState()
       log.error('WeChat', `登录失败: ${error.message}`)
@@ -442,108 +445,6 @@ export async function getLoginQRCode(forceRefresh = false): Promise<QRCodeResult
     resetWechatRuntimeState()
     log.error('WeChat', `获取二维码失败: ${error.message}`)
     return { success: false, error: error.message }
-  }
-}
-
-/**
- * 保活间隔（毫秒）
- * 微信 iLink 的 context_token 约24小时过期
- * 每2小时发送一次心跳，确保 token 持续有效
- */
-const KEEPALIVE_INTERVAL_MS = 2 * 60 * 60 * 1000
-
-/**
- * 心跳失败后的重试间隔（毫秒）
- */
-const KEEPALIVE_RETRY_INTERVAL_MS = 30 * 60 * 1000
-
-/**
- * 心跳连续失败最大次数
- * 超过此次数后通过 Telegram 通知用户
- */
-const KEEPALIVE_MAX_CONSECUTIVE_FAILURES = 3
-
-/**
- * 启动保活定时器
- * 使用 sendTyping() 发送"正在输入"指示器作为心跳
- * 相比发送可见消息，sendTyping() 不打扰用户，且同样能刷新 context_token
- * 心跳失败时自动缩短重试间隔，连续失败则通知用户
- */
-function startKeepalive(): void {
-  const state = getGlobalState()
-
-  if (state.keepaliveTimer) {
-    clearInterval(state.keepaliveTimer)
-  }
-
-  state.keepaliveFailures = 0
-  state.keepaliveInterval = 'normal'
-
-  const tick = async () => {
-    const notifyUserId = getSetting('wechat_notify_user_id')
-    if (!notifyUserId || !state.bot || state.connectionState !== 'connected') {
-      return
-    }
-
-    try {
-      /**
-       * 使用 sendTyping() 作为心跳，不打扰用户
-       * sendTyping() 同样需要 context_token，能达到保活目的
-       */
-      await state.bot.sendTyping(notifyUserId)
-      state.keepaliveFailures = 0
-
-      /* 如果之前是重试间隔，恢复正常间隔 */
-      if (state.keepaliveInterval === 'retry') {
-        state.keepaliveInterval = 'normal'
-        if (state.keepaliveTimer) {
-          clearInterval(state.keepaliveTimer)
-        }
-        state.keepaliveTimer = setInterval(tick, KEEPALIVE_INTERVAL_MS)
-        log.info('WeChat', '心跳恢复正常间隔')
-      }
-    } catch (error: any) {
-      state.keepaliveFailures++
-      log.error('WeChat', `保活心跳发送失败 (${state.keepaliveFailures}/${KEEPALIVE_MAX_CONSECUTIVE_FAILURES}): ${error.message}`)
-
-      if (error instanceof NoContextError || error instanceof ApiError) {
-        /* context_token 过期或会话过期，缩短重试间隔 */
-        if (state.keepaliveInterval === 'normal') {
-          state.keepaliveInterval = 'retry'
-          if (state.keepaliveTimer) {
-            clearInterval(state.keepaliveTimer)
-          }
-          state.keepaliveTimer = setInterval(tick, KEEPALIVE_RETRY_INTERVAL_MS)
-          log.info('WeChat', `心跳失败，已缩短重试间隔到 ${KEEPALIVE_RETRY_INTERVAL_MS / 1000 / 60} 分钟`)
-        }
-      }
-
-      /* 连续失败超过阈值，通知用户 */
-      if (state.keepaliveFailures >= KEEPALIVE_MAX_CONSECUTIVE_FAILURES) {
-        log.warn('WeChat', '心跳连续失败，微信会话可能已过期，请给微信 Bot 发送任意消息恢复')
-        state.keepaliveFailures = 0
-        notifyViaTelegram('⚠️ 微信会话即将过期，请给微信 Bot 发送任意消息以保持连接')
-      }
-    }
-  }
-
-  state.keepaliveTimer = setInterval(tick, KEEPALIVE_INTERVAL_MS)
-
-  log.info('WeChat', `保活定时器已启动，间隔 ${KEEPALIVE_INTERVAL_MS / 1000 / 60 / 60} 小时`)
-}
-
-/**
- * 停止保活定时器
- */
-function stopKeepalive(): void {
-  const state = getGlobalState()
-
-  if (state.keepaliveTimer) {
-    clearInterval(state.keepaliveTimer)
-    state.keepaliveTimer = null
-    state.keepaliveFailures = 0
-    state.keepaliveInterval = 'normal'
-    log.info('WeChat', '保活定时器已停止')
   }
 }
 
@@ -573,6 +474,7 @@ function stripHtml(message: string): string {
  * 发送微信通知
  * 向配置的通知用户发送消息
  * 新 SDK 的 bot.send() 自动使用 ContextStore 缓存的 context_token
+ * ContextStore 在收到消息时自动更新 token，无需手动保活
  *
  * @param message - 消息内容（可能包含 HTML 标签，会自动移除）
  * @param imageUrl - 可选的图片 URL
@@ -614,14 +516,12 @@ export async function sendWechatNotification(message: string, imageUrl?: string)
     return { success: true }
   } catch (error: any) {
     if (error instanceof NoContextError) {
-      log.error('WeChat', `无法主动推送：用户 ${error.userId} 的 context_token 已过期`)
+      log.error('WeChat', `无法主动推送：用户 ${error.userId} 的 context_token 已过期，请先给 Bot 发送任意消息`)
       return { success: false, error: '该用户会话已过期，请先给 Bot 发送任意消息恢复。' }
     }
     if (error instanceof ApiError && error.isSessionExpired) {
-      log.error('WeChat', '会话已过期，需要重新登录')
-      clearStoredWechatSession()
-      resetWechatRuntimeState()
-      return { success: false, error: '会话已过期，请重新登录' }
+      log.error('WeChat', '会话已过期，SDK 将尝试自动重登录')
+      return { success: false, error: '会话已过期，正在尝试自动重登录' }
     }
     log.error('WeChat', `发送通知失败: ${error.message}`)
     return { success: false, error: error.message }
@@ -661,7 +561,6 @@ export async function wechatLogout(): Promise<{ success: boolean; error?: string
     } catch {}
   }
 
-  stopKeepalive()
   clearStoredWechatSession()
 
   state.bot = null
@@ -670,8 +569,6 @@ export async function wechatLogout(): Promise<{ success: boolean; error?: string
   state.botId = null
   state.userId = null
   state.qrcodeUrl = null
-  state.keepaliveFailures = 0
-  state.keepaliveInterval = 'normal'
 
   log.info('WeChat', '已登出')
 
