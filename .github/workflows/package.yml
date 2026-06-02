@@ -143,7 +143,9 @@ jobs:
           sed -i "s/^platform=.*/platform=${{ matrix.platform }}/" MediaHub/mediahub/manifest
 
       - name: 设置 fnpack 可执行权限
-        run: chmod +x ${{ matrix.fnpack }}
+        run: |
+          chmod +x ${{ matrix.fnpack }}
+          chmod +x MediaHub/mediahub/cmd/*
 
       - name: 构建 fpk 包
         run: |
