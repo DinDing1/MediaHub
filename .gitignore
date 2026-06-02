@@ -25,7 +25,7 @@ bot123/
 Thumbs.db
 .vscode/
 .idea/
-
+.trae/
 # 临时文件
 *.log
 *.tmp

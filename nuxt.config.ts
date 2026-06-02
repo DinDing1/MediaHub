@@ -60,7 +60,15 @@ export default defineNuxtConfig({
         'domutils',
         'telegram',
         'big-integer',
-        'mime'
+        'mime',
+        '@wechatbot/wechatbot',
+        'socks-proxy-agent',
+        'socks',
+        'agent-base',
+        'https-proxy-agent',
+        'qrcode',
+        'abort-controller',
+        'event-target-shim'
       ]
     },
     publicAssets: [
