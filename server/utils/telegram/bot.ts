@@ -132,6 +132,9 @@ export async function initBot(): Promise<{ success: boolean; error?: string }> {
     state.connected = true
     state.initializing = false
 
+    /* 注册 Bot 命令菜单，用户在聊天界面点击 / 即可看到命令列表 */
+    await registerBotCommands(bot)
+
     /* 启动消息处理器（长轮询） */
     startBotMessageHandler(bot)
 
@@ -140,6 +143,25 @@ export async function initBot(): Promise<{ success: boolean; error?: string }> {
     state.initializing = false
     log.error('Telegram Bot', `Bot 初始化失败: ${error.message}`)
     return { success: false, error: error.message }
+  }
+}
+
+/**
+ * 注册 Bot 命令菜单
+ * 调用 Telegram Bot API 的 setMyCommands 方法
+ * 用户在聊天界面点击 / 即可看到命令列表
+ *
+ * @param bot - grammy Bot 实例
+ */
+async function registerBotCommands(bot: Bot<Context, Api<RawApi>>): Promise<void> {
+  try {
+    await bot.api.setMyCommands([
+      { command: 'start', description: '显示帮助信息' },
+      { command: 'strm115', description: '生成 STRM 文件' }
+    ])
+    log.info('Telegram Bot', '命令菜单已注册')
+  } catch (error: any) {
+    log.warn('Telegram Bot', `注册命令菜单失败: ${error.message}`)
   }
 }
 
