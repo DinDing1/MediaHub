@@ -70,7 +70,7 @@ start_process() {
         export TRIM_PKGDIR="${APP_ROOT}"
         export MEDIA_PATH="${MEDIA_PATH}"
         export NITRO_PRESET=node-server
-        export PORT=3030
+        export PORT="${TRIM_SERVICE_PORT:-3030}"
         exec -a "MediaHub" "${NODE_BIN}" "${APP_ROOT}/www/server/index.mjs"
     ) >> "${LOG_FILE}" 2>&1 &
 

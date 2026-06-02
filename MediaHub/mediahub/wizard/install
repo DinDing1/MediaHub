@@ -9,31 +9,27 @@
         ]
     },
     {
-        "stepTitle": "媒体目录配置",
+        "stepTitle": "STRM 输出目录",
         "items": [
             {
                 "type": "tips",
-                "helpText": "MediaHub 会创建 STRM 文件供 Emby/Jellyfin 等媒体服务器使用。"
+                "helpText": "MediaHub 默认会把 STRM 文件保存到应用数据目录的 media 共享目录中。"
             },
             {
                 "type": "text",
                 "field": "wizard_media_path",
-                "label": "媒体目录路径",
-                "placeholder": "请输入媒体目录路径，如：/vol1/1000/media",
+                "label": "自定义输出目录（可选）",
+                "placeholder": "留空使用默认目录，或填写已授权的路径，如 /vol1/1000/media",
                 "rules": [
                     {
-                        "required": true,
-                        "message": "请输入媒体目录路径"
-                    },
-                    {
-                        "pattern": "^/vol[0-9]+/.*",
+                        "pattern": "^$|^/vol[0-9]+/.*",
                         "message": "路径必须以 /vol 开头，如 /vol1/1000/media"
                     }
                 ]
             },
             {
                 "type": "tips",
-                "helpText": "该目录将用于存放 STRM 文件，其他应用（如 Emby/Jellyfin）可以读取此目录。"
+                "helpText": "如需写入自定义目录，请先在飞牛应用设置中为 MediaHub 授予该目录的读写权限。"
             }
         ]
     }

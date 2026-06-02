@@ -1,0 +1,5 @@
+MediaHub/mediahub/cmd/* text eol=lf
+MediaHub/mediahub/config/* text eol=lf
+MediaHub/mediahub/wizard/* text eol=lf
+MediaHub/mediahub/manifest text eol=lf
+.github/workflows/*.yml text eol=lf

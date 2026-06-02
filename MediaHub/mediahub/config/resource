@@ -1,5 +1,14 @@
 {
     "data-share": {
-        "shares": []
+        "shares": [
+            {
+                "name": "media",
+                "permission": {
+                    "rw": [
+                        "mediahub"
+                    ]
+                }
+            }
+        ]
     }
 }
