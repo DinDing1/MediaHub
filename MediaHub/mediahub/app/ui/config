@@ -5,7 +5,7 @@
             "icon": "images/icon_{0}.png",
             "type": "iframe",
             "protocol": "",
-            "port": "${TRIM_SERVICE_PORT}",
+            "port": "3030",
             "url": "/",
             "allUsers": true,
             "control": {
