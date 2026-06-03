@@ -8,9 +8,8 @@ services:
     volumes:
       - ./data:/app/data                    # 应用数据（数据库等）
       - ./logs:/app/logs                    # 日志目录
-      - /path/to/your/media:/media          # 媒体目录，STRM 文件输出路径
+      - /path/to/your/media:/app/media          # 媒体目录，STRM 文件输出路径
     environment:
       - NODE_ENV=production
       - TZ=Asia/Shanghai
-      - MEDIA_PATH=/media              # STRM 文件输出路径，对应上面的 /media 挂载
     restart: unless-stopped

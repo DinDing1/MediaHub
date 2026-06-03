@@ -139,31 +139,27 @@ function ensureWritableDirectory(targetPath: string): void {
 /**
  * 获取 STRM 文件输出目录
  * 优先级：
- * 1. 环境变量 MEDIA_PATH（Docker 或飞牛安装向导配置的自定义路径）
- * 2. TRIM_DATA_ACCESSIBLE_PATHS 中的第一个授权目录（飞牛应用设置中授权的目录）
- * 3. TRIM_PKGVAR/media（飞牛OS应用数据目录下的 media 子目录）
- * 4. 当前工作目录下的 media 文件夹（本地开发）
+ * 1. TRIM_DATA_ACCESSIBLE_PATHS 中的第一个授权目录（飞牛OS应用设置中授权的目录）
+ * 2. TRIM_PKGVAR/media（飞牛OS应用数据目录下的 media 子目录）
+ * 3. 当前工作目录下的 media 文件夹（本地开发）
  */
 function getMediaPath(): string {
   if (!mediaPath) {
+    // 优先使用飞牛授权目录（用户在应用设置中授权的目录）
+    const accessiblePaths = parseAccessiblePaths()
     let configuredPath: string
 
-    if (process.env.MEDIA_PATH) {
-      // Docker 环境通过 MEDIA_PATH 环境变量指定媒体目录
-      configuredPath = process.env.MEDIA_PATH
-      log.info('STRM', `使用 MEDIA_PATH 环境变量: ${configuredPath}`)
+    if (accessiblePaths.length > 0) {
+      // 使用第一个授权目录作为媒体输出路径
+      configuredPath = accessiblePaths[0]!
+      log.info('STRM', `使用授权目录作为媒体路径: ${configuredPath}`)
+    } else if (process.env.TRIM_PKGVAR) {
+      // 飞牛环境下没有授权目录，使用应用数据目录下的 media 子目录
+      configuredPath = join(process.env.TRIM_PKGVAR, 'media')
+      log.info('STRM', `未检测到授权目录，使用应用数据目录: ${configuredPath}`)
     } else {
-      // 飞牛环境：优先使用授权目录
-      const accessiblePaths = parseAccessiblePaths()
-      if (accessiblePaths.length > 0) {
-        configuredPath = accessiblePaths[0]!
-        log.info('STRM', `使用授权目录作为媒体路径: ${configuredPath}`)
-      } else if (process.env.TRIM_PKGVAR) {
-        configuredPath = join(process.env.TRIM_PKGVAR, 'media')
-        log.info('STRM', `未检测到授权目录，使用应用数据目录: ${configuredPath}`)
-      } else {
-        configuredPath = join(process.cwd(), 'media')
-      }
+      // 本地开发环境
+      configuredPath = join(process.cwd(), 'media')
     }
 
     mediaPath = ensureAuthorizedMediaPath(configuredPath)
