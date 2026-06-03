@@ -7,7 +7,7 @@ services:
       - "8097:8097"   # Emby 反代端口（可选，启用反代时需要）
     volumes:
       - ./data:/app/data                    # 应用数据（数据库等）
-      - ./logs:/app/data/logs               # 日志目录
+      - ./logs:/app/logs                    # 日志目录
       - /path/to/your/media:/media          # 媒体目录，STRM 文件输出路径
     environment:
       - NODE_ENV=production

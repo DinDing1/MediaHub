@@ -32,7 +32,10 @@ let lastCleanTime: number = 0
 
 function getLogPath(): string {
   if (!logPath) {
-    logPath = process.env.TRIM_PKGVAR ? join(process.env.TRIM_PKGVAR, 'logs') : (process.env.LOG_PATH || join(process.cwd(), 'logs'))
+    // 飞牛环境用 TRIM_PKGVAR/logs，Docker/本地开发用 cwd/logs
+    logPath = process.env.TRIM_PKGVAR
+      ? join(process.env.TRIM_PKGVAR, 'logs')
+      : join(process.cwd(), 'logs')
     if (!existsSync(logPath)) {
       mkdirSync(logPath, { recursive: true })
     }

@@ -296,8 +296,13 @@ export async function initWechatClient(): Promise<{ success: boolean; error?: st
     /**
      * login() 会自动从 Storage 加载已保存的凭证
      * 如果凭证有效则直接返回，无需重新扫码
+     * 添加 30 秒超时，防止过期凭证导致无限等待
      */
-    const creds = await bot.login()
+    const loginPromise = bot.login()
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      setTimeout(() => reject(new Error('登录超时（30秒），凭证可能已过期，请重新扫码登录')), 30000)
+    })
+    const creds = await Promise.race([loginPromise, timeoutPromise])
 
     state.botId = creds.accountId
     state.userId = creds.userId
@@ -325,6 +330,8 @@ export async function initWechatClient(): Promise<{ success: boolean; error?: st
     return { success: true }
   } catch (error: any) {
     resetWechatRuntimeState()
+    /* 初始化失败时清除过期凭证，避免下次启动继续用过期凭证卡住 */
+    clearStoredWechatSession()
     log.error('WeChat', `初始化失败: ${error.message}`)
     return { success: false, error: error.message }
   } finally {
