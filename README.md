@@ -11,13 +11,14 @@
 ```yaml
 services:
   mediahub:
-    image: dinlinguangguang/mediahub:latest
+    image: dinding1/mediahub:latest
     container_name: mediahub
     ports:
       - "3030:3030"   # Web 管理界面
       - "8097:8097"   # Emby 反代端口（可选，启用反代时需要）
     volumes:
-      - ./data:/app/data                    # 应用数据（数据库、日志等）
+      - ./data:/app/data                    # 应用数据（数据库等）
+      - ./logs:/app/data/logs               # 日志目录
       - /path/to/your/media:/media          # 媒体目录，STRM 文件输出路径
     environment:
       - NODE_ENV=production
@@ -44,7 +45,8 @@ docker compose up -d
 
 | 容器路径 | 说明 |
 |----------|------|
-| `/app/data` | 应用数据目录（数据库、配置、日志） |
+| `/app/data` | 应用数据目录（数据库、配置） |
+| `/app/data/logs` | 日志目录 |
 | `/media` | 媒体目录，STRM 文件输出路径，需映射到宿主机实际媒体目录 |
 
 ## 本地开发
