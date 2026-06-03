@@ -151,7 +151,7 @@ function getMediaPath(): string {
 
     if (accessiblePaths.length > 0) {
       // 使用第一个授权目录作为媒体输出路径
-      configuredPath = accessiblePaths[0]
+      configuredPath = accessiblePaths[0]!
       log.info('STRM', `使用授权目录作为媒体路径: ${configuredPath}`)
     } else if (process.env.TRIM_PKGVAR) {
       // 飞牛环境下没有授权目录，使用应用数据目录下的 media 子目录
