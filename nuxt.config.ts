@@ -77,6 +77,7 @@ export default defineNuxtConfig({
         'agent-base',
         'https-proxy-agent',
         'qrcode',
+        'dijkstrajs',
         'abort-controller',
         'event-target-shim'
       ]

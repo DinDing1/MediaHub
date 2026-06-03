@@ -12,4 +12,5 @@ services:
     environment:
       - NODE_ENV=production
       - TZ=Asia/Shanghai
+      - MEDIA_PATH=/media              # STRM 文件输出路径，对应上面的 /media 挂载
     restart: unless-stopped

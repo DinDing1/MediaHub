@@ -23,6 +23,7 @@ services:
     environment:
       - NODE_ENV=production
       - TZ=Asia/Shanghai
+      - MEDIA_PATH=/media              # STRM 文件输出路径，对应上面的 /media 挂载
     restart: unless-stopped
 ```
 
@@ -46,7 +47,7 @@ docker compose up -d
 | 容器路径 | 说明 |
 |----------|------|
 | `/app/data` | 应用数据目录（数据库、配置） |
-| `/app/data/logs` | 日志目录 |
+| `/app/logs` | 日志目录 |
 | `/media` | 媒体目录，STRM 文件输出路径，需映射到宿主机实际媒体目录 |
 
 ## 本地开发
