@@ -17,7 +17,7 @@ on:
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
   REGISTRY: docker.io
-  IMAGE_NAME: dinlinguangguang/mediahub
+  IMAGE_NAME: dinding1/mediahub
 
 permissions:
   contents: read
