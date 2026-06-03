@@ -1,32 +1,26 @@
 #!/bin/bash
 
+# 飞牛应用环境变量
 APP_ROOT="${TRIM_APPDEST}"
-if [ -z "${APP_ROOT}" ]; then
-    SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-    APP_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
-fi
 NODE_BIN="${APP_ROOT}/runtime/bin/node"
-DATA_DIR="${TRIM_PKGVAR:-${APP_ROOT}/data}"
+DATA_DIR="${TRIM_PKGVAR}"
 PID_FILE="${DATA_DIR}/app.pid"
 LOG_DIR="${DATA_DIR}/logs"
 LOG_FILE="${LOG_DIR}/app.log"
 MEDIA_PATH_FILE="${DATA_DIR}/data/media_path.conf"
 
+# 日志函数
 log_msg() {
     echo "$(date '+%Y-%m-%d %H:%M:%S') - $1" >> "${LOG_FILE}"
 }
 
-write_user_error() {
-    if [ -n "${TRIM_TEMP_LOGFILE}" ]; then
-        echo "$1" > "${TRIM_TEMP_LOGFILE}"
-    fi
-}
-
+# 读取自定义媒体路径
 MEDIA_PATH=""
 if [ -f "${MEDIA_PATH_FILE}" ]; then
     MEDIA_PATH=$(cat "${MEDIA_PATH_FILE}" | tr -d '[:space:]')
 fi
 
+# 检查进程是否存在
 check_process() {
     local pid=$1
     if kill -0 "${pid}" 2>/dev/null; then
@@ -36,6 +30,7 @@ check_process() {
     fi
 }
 
+# 检查应用状态
 status() {
     if [ -f "${PID_FILE}" ]; then
         pid=$(head -n 1 "${PID_FILE}" | tr -d '[:space:]')
@@ -44,13 +39,13 @@ status() {
         fi
         rm -f "${PID_FILE}"
     fi
-
     return 1
 }
 
+# 启动应用
 start_process() {
-    mkdir -p "${DATA_DIR}/data"
-    mkdir -p "${LOG_DIR}"
+    mkdir -p "${DATA_DIR}/data" 2>/dev/null
+    mkdir -p "${LOG_DIR}" 2>/dev/null
 
     if status; then
         log_msg "Process already running."
@@ -59,7 +54,6 @@ start_process() {
 
     if ! [ -x "${NODE_BIN}" ]; then
         log_msg "Node binary not found or not executable: ${NODE_BIN}"
-        write_user_error "应用启动失败：未找到内置 Node.js 运行时。"
         return 1
     fi
 
@@ -81,6 +75,7 @@ start_process() {
     return 0
 }
 
+# 停止应用
 stop_process() {
     log_msg "Stopping MediaHub..."
 
