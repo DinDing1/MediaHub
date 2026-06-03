@@ -110,18 +110,13 @@ function isSubPath(targetPath: string, basePath: string): boolean {
 function ensureAuthorizedMediaPath(targetPath: string): string {
   const normalizedTargetPath = normalizePath(targetPath)
 
-  if (!process.env.MEDIA_PATH) {
-    return normalizedTargetPath
-  }
-
   const accessiblePaths = parseAccessiblePaths()
   if (accessiblePaths.length === 0) {
-    log.warn('STRM', `未检测到 TRIM_DATA_ACCESSIBLE_PATHS，改为按目录实际写权限判断: ${normalizedTargetPath}`)
     return normalizedTargetPath
   }
 
   if (!accessiblePaths.some(basePath => isSubPath(normalizedTargetPath, basePath))) {
-    log.warn('STRM', `目标目录未出现在 TRIM_DATA_ACCESSIBLE_PATHS 中，改为按目录实际写权限判断: ${normalizedTargetPath}`)
+    log.warn('STRM', `目标目录未出现在授权目录中，改为按目录实际写权限判断: ${normalizedTargetPath}`)
   }
 
   return normalizedTargetPath
@@ -144,13 +139,29 @@ function ensureWritableDirectory(targetPath: string): void {
 /**
  * 获取 STRM 文件输出目录
  * 优先级：
- * 1. 环境变量 MEDIA_PATH（飞牛OS安装向导配置的自定义路径）
- * 2. 环境变量 TRIM_PKGVAR/media（飞牛OS应用目录）
+ * 1. TRIM_DATA_ACCESSIBLE_PATHS 中的第一个授权目录（飞牛OS应用设置中授权的目录）
+ * 2. TRIM_PKGVAR/media（飞牛OS应用数据目录下的 media 子目录）
  * 3. 当前工作目录下的 media 文件夹（本地开发）
  */
 function getMediaPath(): string {
   if (!mediaPath) {
-    const configuredPath = process.env.MEDIA_PATH || (process.env.TRIM_PKGVAR ? join(process.env.TRIM_PKGVAR, 'media') : join(process.cwd(), 'media'))
+    // 优先使用飞牛授权目录（用户在应用设置中授权的目录）
+    const accessiblePaths = parseAccessiblePaths()
+    let configuredPath: string
+
+    if (accessiblePaths.length > 0) {
+      // 使用第一个授权目录作为媒体输出路径
+      configuredPath = accessiblePaths[0]
+      log.info('STRM', `使用授权目录作为媒体路径: ${configuredPath}`)
+    } else if (process.env.TRIM_PKGVAR) {
+      // 飞牛环境下没有授权目录，使用应用数据目录下的 media 子目录
+      configuredPath = join(process.env.TRIM_PKGVAR, 'media')
+      log.info('STRM', `未检测到授权目录，使用应用数据目录: ${configuredPath}`)
+    } else {
+      // 本地开发环境
+      configuredPath = join(process.cwd(), 'media')
+    }
+
     mediaPath = ensureAuthorizedMediaPath(configuredPath)
     ensureWritableDirectory(mediaPath)
   }

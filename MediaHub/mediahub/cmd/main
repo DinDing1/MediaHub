@@ -7,18 +7,11 @@ DATA_DIR="${TRIM_PKGVAR}"
 PID_FILE="${DATA_DIR}/app.pid"
 LOG_DIR="${DATA_DIR}/logs"
 LOG_FILE="${LOG_DIR}/app.log"
-MEDIA_PATH_FILE="${DATA_DIR}/data/media_path.conf"
 
 # 日志函数
 log_msg() {
     echo "$(date '+%Y-%m-%d %H:%M:%S') - $1" >> "${LOG_FILE}"
 }
-
-# 读取自定义媒体路径
-MEDIA_PATH=""
-if [ -f "${MEDIA_PATH_FILE}" ]; then
-    MEDIA_PATH=$(cat "${MEDIA_PATH_FILE}" | tr -d '[:space:]')
-fi
 
 # 检查进程是否存在
 check_process() {
@@ -65,7 +58,6 @@ start_process() {
         export TRIM_PKGVAR="${DATA_DIR}"
         export TRIM_PKGDIR="${APP_ROOT}"
         export TRIM_APPDEST="${APP_ROOT}"
-        export MEDIA_PATH="${MEDIA_PATH}"
         export NITRO_PRESET=node-server
         export PORT="${TRIM_SERVICE_PORT:-3030}"
         exec -a "MediaHub" "${NODE_BIN}" "${APP_ROOT}/www/server/index.mjs"

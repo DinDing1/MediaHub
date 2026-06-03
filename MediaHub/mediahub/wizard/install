@@ -4,32 +4,11 @@
         "items": [
             {
                 "type": "tips",
-                "helpText": "欢迎使用 MediaHub！这是一个媒体库管理工具，支持云盘整理、自动重命名、Telegram通知等功能。"
-            }
-        ]
-    },
-    {
-        "stepTitle": "STRM 输出目录",
-        "items": [
-            {
-                "type": "tips",
-                "helpText": "MediaHub 默认会把 STRM 文件保存到应用数据目录的 media 共享目录中。"
-            },
-            {
-                "type": "text",
-                "field": "wizard_media_path",
-                "label": "自定义输出目录（可选）",
-                "placeholder": "留空使用默认目录，或填写已授权的路径，如 /vol1/1000/media",
-                "rules": [
-                    {
-                        "pattern": "^$|^/vol[0-9]+/.*",
-                        "message": "路径必须以 /vol 开头，如 /vol1/1000/media"
-                    }
-                ]
+                "helpText": "欢迎使用 MediaHub！这是一个媒体库管理工具，支持云盘整理、自动重命名、STRM文件生成、Emby 302反代、Telegram、WeChat通知等功能。"
             },
             {
                 "type": "tips",
-                "helpText": "如需写入自定义目录，请先在飞牛应用设置中为 MediaHub 授予该目录的读写权限。"
+                "helpText": "安装完成后，请在应用设置中为 MediaHub 授权媒体目录的读写权限，STRM 文件将保存到授权目录中。"
             }
         ]
     }
