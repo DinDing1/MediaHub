@@ -516,9 +516,14 @@ export async function sendWechatNotification(message: string, imageUrl?: string)
       try {
         await state.bot.send(notifyUserId, { url: imageUrl, caption: plainMessage })
       } catch (imageError: any) {
-        /* 图片发送失败（如 URL 404），回退到纯文字发送 */
+        /* 图片发送失败（如 URL 404 或 context_token 过期），回退到纯文字发送 */
         log.warn('WeChat', `图片发送失败，回退到纯文字: ${imageError.message}`)
-        await state.bot.send(notifyUserId, plainMessage)
+        try {
+          await state.bot.send(notifyUserId, plainMessage)
+        } catch (textError: any) {
+          /* 纯文字也失败，直接抛出由外层处理 */
+          throw textError
+        }
       }
     } else {
       await state.bot.send(notifyUserId, plainMessage)
@@ -534,6 +539,11 @@ export async function sendWechatNotification(message: string, imageUrl?: string)
     if (error instanceof ApiError && error.isSessionExpired) {
       log.error('WeChat', '会话已过期，SDK 将尝试自动重登录')
       return { success: false, error: '会话已过期，正在尝试自动重登录' }
+    }
+    /* ret=-2: context_token 失效，需要用户先给 Bot 发消息恢复 */
+    if (error.message && error.message.includes('ret=-2')) {
+      log.error('WeChat', `context_token 已失效(ret=-2)，请先给 Bot 发送任意消息恢复`)
+      return { success: false, error: '会话已过期，请先给 Bot 发送任意消息恢复。' }
     }
     log.error('WeChat', `发送通知失败: ${error.message}`)
     return { success: false, error: error.message }
