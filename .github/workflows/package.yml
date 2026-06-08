@@ -113,25 +113,6 @@ jobs:
           rm -rf MediaHub/mediahub/app/www
           rm -rf MediaHub/mediahub/app/runtime
           mkdir -p MediaHub/mediahub/app/www
-          mkdir -p MediaHub/mediahub/app/runtime/bin
-
-      - name: 下载 Node.js 运行时
-        run: |
-          NODE_VERSION="24.15.0"
-          NODE_ARCH="${{ matrix.nodeArch }}"
-          NODE_TAR="node-v${NODE_VERSION}-linux-${NODE_ARCH}.tar.xz"
-          NODE_URL="https://nodejs.org/dist/v${NODE_VERSION}/${NODE_TAR}"
-
-          echo "下载 Node.js 运行时: ${NODE_URL}"
-          curl -fSL -o /tmp/node-runtime.tar.xz "${NODE_URL}"
-
-          tar -xJf /tmp/node-runtime.tar.xz -C /tmp "node-v${NODE_VERSION}-linux-${NODE_ARCH}/bin/node"
-          cp "/tmp/node-v${NODE_VERSION}-linux-${NODE_ARCH}/bin/node" MediaHub/mediahub/app/runtime/bin/node
-          chmod +x MediaHub/mediahub/app/runtime/bin/node
-
-          echo "Node.js 运行时体积:"
-          ls -lh MediaHub/mediahub/app/runtime/bin/node
-          rm -rf /tmp/node-runtime.tar.xz "/tmp/node-v${NODE_VERSION}-linux-${NODE_ARCH}"
 
       - name: 复制服务端文件
         run: |
