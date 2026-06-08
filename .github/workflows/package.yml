@@ -138,10 +138,20 @@ jobs:
           cp -r .output/server MediaHub/mediahub/app/www/
           cp -r .output/public MediaHub/mediahub/app/www/
 
-      - name: 同步 manifest 版本与平台
+      - name: 同步 manifest 版本与架构
         run: |
           sed -i "s/^version=.*/version=${{ needs.prepare.outputs.version }}/" MediaHub/mediahub/manifest
-          sed -i "s/^platform=.*/platform=${{ matrix.platform }}/" MediaHub/mediahub/manifest
+          if grep -q "^platform=" MediaHub/mediahub/manifest; then
+            sed -i "s/^platform=.*/platform=${{ matrix.platform }}/" MediaHub/mediahub/manifest
+          elif grep -q "^arch=" MediaHub/mediahub/manifest; then
+            if [ "${{ matrix.platform }}" = "x86" ]; then
+              sed -i "s/^arch=.*/arch=x86_64/" MediaHub/mediahub/manifest
+            else
+              sed -i "s/^arch=.*/arch=aarch64/" MediaHub/mediahub/manifest
+            fi
+          else
+            echo "arch=${{ matrix.arch }}" >> MediaHub/mediahub/manifest
+          fi
 
       - name: 确保文本文件使用 LF 行尾
         run: |
