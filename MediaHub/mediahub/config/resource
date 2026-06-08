@@ -12,16 +12,6 @@
                         "mediahub"
                     ]
                 }
-            },
-            {
-                "name": "mediahub/data",
-                "permission":
-                {
-                    "rw":
-                    [
-                        "mediahub"
-                    ]
-                }
             }
         ]
     }

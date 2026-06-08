@@ -1,8 +1,6 @@
 {
     "defaults":
     {
-        "run-as": "root"
-    },
-    "username": "mediahub",
-    "groupname": "mediahub"
+        "run-as": "package"
+    }
 }
