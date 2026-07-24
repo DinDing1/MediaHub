@@ -110,6 +110,8 @@ interface PathItem {
 const props = defineProps<{
   show: boolean
   modelValue: string
+  /** optional 115 cookie fallback when server db is empty */
+  cookie?: string
 }>()
 
 const emit = defineEmits<{
@@ -152,36 +154,49 @@ async function loadFiles() {
   try {
     let response: any = null
     let lastErr: any = null
+    const cookie = (props.cookie || '').trim()
 
-    // Prefer GET, fallback POST for gateway compatibility
+    // Prefer GET, fallback POST
     for (const mode of ['GET', 'POST'] as const) {
       try {
         if (mode === 'GET') {
-          response = await $fetch(`/api/pan115/fs_files_115?cid=${encodeURIComponent(currentCid.value)}`)
+          const qs = new URLSearchParams({ cid: currentCid.value })
+          if (cookie) qs.set('cookie', cookie)
+          response = await $fetch('/api/pan115/fs_files_115?' + qs.toString())
         } else {
           response = await $fetch('/api/pan115/fs_files_115', {
             method: 'POST',
-            body: { cid: currentCid.value }
+            body: { cid: currentCid.value, cookie: cookie || undefined }
           })
         }
         lastErr = null
         break
       } catch (e: any) {
         lastErr = e
-        // If server returned JSON body with error, prefer that over raw HTTP status
         const data = e?.data || e?.response?._data
-        if (data && (data.error || data.message || data.success === false)) {
-          response = data
-          lastErr = null
-          break
+        if (data && (data.error || data.message || data.success === false || data.statusCode)) {
+          // Auth middleware 401/403 should be shown clearly
+          if (data.statusCode && !data.success) {
+            response = {
+              success: false,
+              error: data.message || data.statusMessage || ('HTTP ' + data.statusCode)
+            }
+            lastErr = null
+            break
+          }
+          if (data.error || data.message || data.success === false) {
+            response = data
+            lastErr = null
+            break
+          }
         }
       }
     }
 
     if (lastErr && !response) {
       const status = lastErr?.statusCode || lastErr?.status || lastErr?.response?.status
-      const msg = lastErr?.data?.error || lastErr?.data?.message || lastErr?.message || "加载失败"
-      error.value = status ? `${msg} (HTTP ${status})` : msg
+      const msg = lastErr?.data?.error || lastErr?.data?.message || lastErr?.message || '????'
+      error.value = status ? (msg + ' (HTTP ' + status + ')') : msg
       return
     }
 
@@ -191,7 +206,7 @@ async function loadFiles() {
         currentPath.value = response.path.slice(1)
       }
     } else {
-      error.value = response?.error || response?.message || "加载失败"
+      error.value = response?.error || response?.message || '????'
     }
   } catch (e: any) {
     const data = e?.data || e?.response?._data
@@ -199,8 +214,8 @@ async function loadFiles() {
       error.value = data.error || data.message
     } else {
       const status = e?.statusCode || e?.status || e?.response?.status
-      const msg = e?.message || "加载失败"
-      error.value = status ? `${msg} (HTTP ${status})` : msg
+      const msg = e?.message || '????'
+      error.value = status ? (msg + ' (HTTP ' + status + ')') : msg
     }
   } finally {
     loading.value = false

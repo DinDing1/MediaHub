@@ -175,10 +175,13 @@ function isAuthError(status: number, body: any, errText: string): boolean {
 
 async function fetchJson(
   url: string,
-  init: RequestInit
+  init: RequestInit,
+  timeoutMs = 10000
 ): Promise<{ ok: boolean; status: number; body?: any; error?: string }> {
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), timeoutMs)
   try {
-    const response = await fetch(url, { redirect: 'follow', ...init })
+    const response = await fetch(url, { redirect: 'follow', ...init, signal: controller.signal })
     const status = response.status
     const text = await response.text()
     let body: any = null
@@ -196,7 +199,10 @@ async function fetchJson(
     }
     return { ok: true, status, body }
   } catch (e: any) {
-    return { ok: false, status: 0, error: e?.message || String(e) }
+    const msg = e?.name === 'AbortError' ? ('timeout ' + timeoutMs + 'ms') : (e?.message || String(e))
+    return { ok: false, status: 0, error: msg }
+  } finally {
+    clearTimeout(timer)
   }
 }
 
@@ -216,14 +222,17 @@ async function ensureOpenToken(cookie: string): Promise<string | null> {
     if (!(getSetting('pan115_app_id') || '').trim()) {
       setSetting('pan115_app_id', appId)
     }
-    log.info('115', 'ensure open token before list')
+    console.log('[115-list] ensure open token, appId=', appId)
+    log.info('115??', '????????????? Token')
     const result = await getAccessTokenByCookie(cookie, appId)
     if (result.success && result.openToken && result.refreshToken && result.expiresIn) {
       saveOpenToken(result.openToken, result.refreshToken, result.expiresIn)
-      log.success('115-open', 'auto auth ok')
+      console.log('[115-list] open token acquired')
+      log.success('115????', '??????')
       return result.openToken
     }
-    log.warn('115-open', 'auto auth failed: ' + (result.error || 'unknown'))
+    console.warn('[115-list] open token failed:', result.error || 'unknown')
+    log.warn('115????', '??????: ' + (result.error || 'unknown'))
   } catch (e: any) {
     log.warn('115-open', 'auto auth error: ' + (e?.message || e))
   }
@@ -260,12 +269,14 @@ async function tryOpenApiList(cid: string, tokenHint?: string | null): Promise<L
   if (isListSuccess(result.body)) {
     const arr = extractListArray(result.body)
     if (arr) {
-      log.info('115', 'open api list ok count=' + arr.length)
+      console.log('[115-list] open api OK count=', arr.length)
+      log.info('115??', '???????? count=' + arr.length)
       return { success: true, files: arr.map((item) => mapFileItem(item, cid)) }
     }
   }
 
-  log.warn('115', 'open api list failed: ' + (result.error || listErrorMessage(result.body, result.status)))
+  console.warn('[115-list] open api failed:', result.error || listErrorMessage(result.body, result.status))
+  log.warn('115??', '????????: ' + (result.error || listErrorMessage(result.body, result.status)))
   return null
 }
 
@@ -284,58 +295,30 @@ async function tryCookieList(cookie: string, cid: string): Promise<ListFilesResu
 
   const paramsDefault = buildDefaultListParams(cid)
   const paramsDirsOnly = buildDefaultListParams(cid, { nf: '1', show_dir: '1', cur: '1' })
-  const paramsSorted = buildDefaultListParams(cid, {
-    asc: '1',
-    o: 'user_ptime',
-    custom_order: '2',
-    cur: '1',
-    fc_mix: '0'
-  })
-
+  
   const candidates: ListCandidate[] = []
 
-  // 1) aps first
+  // Keep a short prioritized list (first success wins). Order matters under 115 risk-control.
   candidates.push({ name: 'aps:default', url: APS_FILES_URL + '?' + paramsDefault.toString(), headers })
-  candidates.push({ name: 'aps:dirs', url: APS_FILES_URL + '?' + paramsDirsOnly.toString(), headers })
-  candidates.push({ name: 'aps:sorted', url: APS_FILES_URL + '?' + paramsSorted.toString(), headers })
-
-  // 2) proapi by login app
-  const apps = Array.from(new Set([loginApp, 'android', 'ios', 'web', 'chrome', 'tv', 'qandroid']))
-  for (const app of apps) {
-    candidates.push({
-      name: 'proapi:' + app + '/2.0/ufile/files',
-      url: PROAPI_BASE + '/' + app + '/2.0/ufile/files?' + paramsDefault.toString(),
-      headers
-    })
-    candidates.push({
-      name: 'proapi:' + app + '/files',
-      url: PROAPI_BASE + '/' + app + '/files?' + paramsDefault.toString(),
-      headers
-    })
-  }
-
-  // 3) webapi multi-origin
-  for (const origin of WEBAPI_ORIGINS) {
-    candidates.push({
-      name: 'webapi:' + origin,
-      url: origin.replace(/\/$/, '') + '/files?' + paramsDefault.toString(),
-      headers
-    })
-  }
-  candidates.push({ name: 'webapi:dirs', url: WEBAPI_BASE + '/files?' + paramsDirsOnly.toString(), headers })
-  candidates.push({ name: 'webapi:sorted', url: WEBAPI_BASE + '/files?' + paramsSorted.toString(), headers })
-
-  // 4) bare params
-  const paramsBare = new URLSearchParams({ cid: String(cid || '0'), show_dir: '1' })
-  candidates.push({ name: 'aps:bare', url: APS_FILES_URL + '?' + paramsBare.toString(), headers })
-  candidates.push({ name: 'webapi:bare', url: WEBAPI_BASE + '/files?' + paramsBare.toString(), headers })
+  candidates.push({ name: 'aps:bare', url: APS_FILES_URL + '?' + new URLSearchParams({ cid: String(cid || '0'), show_dir: '1' }).toString(), headers })
   candidates.push({
-    name: 'proapi:' + loginApp + '/2.0/ufile/files:bare',
-    url: PROAPI_BASE + '/' + loginApp + '/2.0/ufile/files?' + paramsBare.toString(),
+    name: 'proapi:' + loginApp + '/2.0/ufile/files',
+    url: PROAPI_BASE + '/' + loginApp + '/2.0/ufile/files?' + paramsDefault.toString(),
     headers
   })
-
-  // 5) POST fallback
+  candidates.push({
+    name: 'proapi:android/2.0/ufile/files',
+    url: PROAPI_BASE + '/android/2.0/ufile/files?' + paramsDefault.toString(),
+    headers
+  })
+  candidates.push({ name: 'webapi:main', url: WEBAPI_BASE + '/files?' + paramsDefault.toString(), headers })
+  candidates.push({ name: 'webapi:bare', url: WEBAPI_BASE + '/files?' + new URLSearchParams({ cid: String(cid || '0'), show_dir: '1' }).toString(), headers })
+  candidates.push({ name: 'aps:dirs', url: APS_FILES_URL + '?' + paramsDirsOnly.toString(), headers })
+  candidates.push({
+    name: 'proapi:' + loginApp + '/files',
+    url: PROAPI_BASE + '/' + loginApp + '/files?' + paramsDefault.toString(),
+    headers
+  })
   candidates.push({
     name: 'webapi:POST',
     url: WEBAPI_BASE + '/files',
@@ -350,49 +333,62 @@ async function tryCookieList(cookie: string, cid: string): Promise<ListFilesResu
     method: 'POST',
     body: paramsDefault.toString()
   })
+  // extra origins last
+  for (const origin of WEBAPI_ORIGINS) {
+    if (origin === WEBAPI_BASE || origin === PROAPI_BASE) continue
+    candidates.push({
+      name: 'webapi:' + origin,
+      url: origin.replace(/\/$/, '') + '/files?' + paramsDefault.toString(),
+      headers
+    })
+  }
 
   const errors: string[] = []
   let riskHits = 0
 
-  for (const c of candidates) {
+  // Prefer first successful channel; log every attempt for diagnose
+  const maxAttempts = Math.min(candidates.length, 14)
+  for (let i = 0; i < maxAttempts; i++) {
+    const c = candidates[i]
+    console.log('[115-list] try', i + 1 + '/' + maxAttempts, c.name)
     const result = await fetchJson(c.url, {
       method: c.method || 'GET',
       headers: c.headers,
       body: c.body
-    })
+    }, 8000)
 
     if (isListSuccess(result.body)) {
       const arr = extractListArray(result.body)
       if (arr) {
-        log.info('115', 'list ok via ' + c.name + ', count=' + arr.length)
+        console.log('[115-list] OK via', c.name, 'count=', arr.length)
+        log.info('115云盘', '列表成功 via ' + c.name + ', count=' + arr.length)
         return { success: true, files: arr.map((item) => mapFileItem(item, cid)) }
       }
       errors.push(c.name + ' => success but no data array')
+      console.warn('[115-list] success body without array:', c.name)
       continue
     }
 
     const msg = result.error || listErrorMessage(result.body, result.status)
-    // do not hard-fail whole list on one channel's auth error; only stop if message is clearly global login invalid
-    if (/99/.test(msg) && /重新登录|请先登录|登录失效|未登录|login/i.test(msg + JSON.stringify(result.body || {}))) {
-      // continue trying other channels first; record only
-    }
+    console.warn('[115-list] fail', c.name, '=>', msg)
     if (isRiskControl(result.status, result.body, msg)) riskHits++
     errors.push(c.name + ' => ' + msg)
   }
 
-  log.error('115', 'cookie list all failed: ' + errors.slice(0, 12).join(' | '))
+  log.error('115云盘', 'Cookie 通道列表全部失败: ' + errors.slice(0, 12).join(' | '))
+  console.error('[115-list] all cookie channels failed', errors.slice(0, 8))
 
   if (riskHits > 0 && riskHits >= Math.min(3, errors.length)) {
     return {
       success: false,
-      error: "115 接口风控(HTTP 405)。Cookie 仍可能有效，但 /files 通道被限制。请在设置中确认开放平台 AppID 并重新扫码登录以获取开放平台 Token；或改用 android 设备类型扫码后重试。" + "(共尝试 " + errors.length + " 路)"
+      error: "115 接口风控(HTTP 405)?Cookie 仍可能有效，但 /files 通道被限制。请确认开放平台 AppID，重新扫码登录以获取 Token；或改用 android 设备类型扫码后重试。" + '(共尝试 ' + errors.length + ' 路)'
     }
   }
 
-  const prefer = errors.find(e => /405|risk|风控/.test(e)) || errors[errors.length - 1] || '获取文件列表失败'
+  const prefer = errors.find(e => /405|risk|风控/.test(e)) || errors[errors.length - 1] || "获取文件列表失败"
   return {
     success: false,
-    error: prefer + (errors.length > 1 ? "(共尝试 " + errors.length + " 路)" : '')
+    error: prefer + (errors.length > 1 ? ('(共尝试 ' + errors.length + ' 路)') : '')
   }
 }
 
@@ -404,10 +400,13 @@ async function executeListFiles(
     return { success: false, error: "Cookie为空" }
   }
 
+  console.log('[115-list] executeListFiles cid=', cid, 'cookieLen=', cookie.length)
   const openToken = await ensureOpenToken(cookie)
+  console.log('[115-list] openToken present=', !!openToken)
   const openResult = await tryOpenApiList(cid, openToken)
   if (openResult?.success) return openResult
 
+  console.log('[115-list] fallback to cookie channels')
   return tryCookieList(cookie, cid)
 }
 

@@ -1742,7 +1742,18 @@ function startQRCodeCheck() {
           pan115Form.cookie = response.cookie
           closeQRCodeModal()
           await saveAppId()
-          message.value = '115云盘登录成功，Cookie和AppID已自动保存'
+          try {
+            await $fetch('/api/settings', {
+              method: 'POST',
+              body: {
+                pan115Cookie: response.cookie,
+                pan115AppId: pan115Form.appId.trim() || '100195137'
+              }
+            })
+          } catch (persistErr) {
+            clientLog.error('settings', 'persist cookie after QR failed', persistErr)
+          }
+          message.value = '115???????Cookie?AppID?????'
           messageType.value = 'success'
           await checkCKStatus()
         }
