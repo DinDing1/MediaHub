@@ -92,4 +92,3 @@ export function enqueueRequest<T>(
 export function getQueueLength(): number {
   return requestQueue.getQueueLength()
 }
-
