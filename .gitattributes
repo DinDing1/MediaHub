@@ -1,5 +1,14 @@
-MediaHub/mediahub/cmd/* text eol=lf
-MediaHub/mediahub/config/* text eol=lf
-MediaHub/mediahub/wizard/* text eol=lf
-MediaHub/mediahub/manifest text eol=lf
+# fnOS package scripts must use LF
+deploy/fnos/mediahub/cmd/* text eol=lf
+deploy/fnos/mediahub/config/* text eol=lf
+deploy/fnos/mediahub/wizard/* text eol=lf
+deploy/fnos/mediahub/manifest text eol=lf
 .github/workflows/*.yml text eol=lf
+
+# Source text
+*.ts text
+*.vue text
+*.json text
+*.md text
+*.yml text
+*.yaml text

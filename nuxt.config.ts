@@ -1,5 +1,10 @@
 export default defineNuxtConfig({
   compatibilityDate: '2024-03-18',
+  srcDir: 'app',
+  serverDir: 'server',
+  dir: {
+    public: '../public'
+  },
   devtools: { enabled: false },
   sourcemap: {
     server: false,
@@ -84,10 +89,9 @@ export default defineNuxtConfig({
     },
     publicAssets: [
       {
-        dir: '../fonts',
+        dir: 'fonts',
         maxAge: 60 * 60 * 24 * 365
       }
     ]
   }
 })
-

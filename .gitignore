@@ -1,32 +1,54 @@
-# 依赖目录
+# Dependencies / local install
 node_modules/
 
-# Nuxt 构建产物
+# Nuxt build artifacts
 .nuxt/
 .output/
 .dist/
 dist/
 
-# 运行时数据
+# Local runtime / test data (never commit)
+data/
 logs/
 media/
-data/
+.data/
+.logs/
+.media/
+*.db
+*.db-shm
+*.db-wal
+accessible_paths.env
 
-# 外部参考项目
-bot123/
-
-# 环境变量与本地配置
+# Env secrets / local env
 .env
 .env.*
 !.env.example
 
-# 系统与编辑器文件
+# Editor / OS
 .DS_Store
 Thumbs.db
 .vscode/
 .idea/
 .trae/
-# 临时文件
+.claude/
+*.swp
+*~
+
+# Logs / temp
 *.log
 *.tmp
 *.temp
+npm-debug.log*
+.npm-install.*
+
+# Local packaging tools (download in CI, do not commit)
+fnpack-*
+*.fpk
+
+# Generated inside deploy package by CI
+deploy/fnos/mediahub/app/www/
+deploy/fnos/mediahub/app/runtime/bin/
+deploy/fnos/*.fpk
+
+# Optional local references
+bot123/

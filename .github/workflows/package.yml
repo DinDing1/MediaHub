@@ -110,11 +110,11 @@ jobs:
 
       - name: 准备打包目录
         run: |
-          rm -rf MediaHub/mediahub/app/www
-          rm -rf MediaHub/mediahub/app/runtime
-          mkdir -p MediaHub/mediahub/app/www/server
-          mkdir -p MediaHub/mediahub/app/www/public
-          mkdir -p MediaHub/mediahub/app/runtime/bin
+          rm -rf deploy/fnos/mediahub/app/www
+          rm -rf deploy/fnos/mediahub/app/runtime
+          mkdir -p deploy/fnos/mediahub/app/www/server
+          mkdir -p deploy/fnos/mediahub/app/www/public
+          mkdir -p deploy/fnos/mediahub/app/runtime/bin
 
       - name: 下载内置 Node.js 运行时
         run: |
@@ -127,26 +127,26 @@ jobs:
           curl -fSL -o /tmp/node-runtime.tar.xz "${NODE_URL}"
 
           tar -xJf /tmp/node-runtime.tar.xz -C /tmp "node-v${NODE_VERSION}-linux-${NODE_ARCH}/bin/node"
-          cp "/tmp/node-v${NODE_VERSION}-linux-${NODE_ARCH}/bin/node" MediaHub/mediahub/app/runtime/bin/node
-          chmod +x MediaHub/mediahub/app/runtime/bin/node
+          cp "/tmp/node-v${NODE_VERSION}-linux-${NODE_ARCH}/bin/node" deploy/fnos/mediahub/app/runtime/bin/node
+          chmod +x deploy/fnos/mediahub/app/runtime/bin/node
 
-          ls -lh MediaHub/mediahub/app/runtime/bin/node
+          ls -lh deploy/fnos/mediahub/app/runtime/bin/node
           rm -rf /tmp/node-runtime.tar.xz "/tmp/node-v${NODE_VERSION}-linux-${NODE_ARCH}"
 
       - name: 复制构建产物（解引用符号链接，避免飞牛设置目录权限失败）
         run: |
           # 飞牛安装器在处理 Linux npm 生成的 node_modules 符号链接 / Junction 时
           # 会触发「设置目录权限失败」。使用 rsync -L 解引用为真实文件后再打包。
-          rsync -aL --delete .output/server/ MediaHub/mediahub/app/www/server/
-          rsync -aL --delete .output/public/ MediaHub/mediahub/app/www/public/
+          rsync -aL --delete .output/server/ deploy/fnos/mediahub/app/www/server/
+          rsync -aL --delete .output/public/ deploy/fnos/mediahub/app/www/public/
 
           # 清理 npm bin 链接目录（即使解引用后也可能残留）
-          find MediaHub/mediahub/app/www/server -type d -name '.bin' -prune -exec rm -rf {} + 2>/dev/null || true
+          find deploy/fnos/mediahub/app/www/server -type d -name '.bin' -prune -exec rm -rf {} + 2>/dev/null || true
 
           # 再次确保不存在符号链接
-          if find MediaHub/mediahub/app/www/server -type l | grep -q .; then
+          if find deploy/fnos/mediahub/app/www/server -type l | grep -q .; then
             echo "检测到残留符号链接，尝试替换为真实文件..."
-            find MediaHub/mediahub/app/www/server -type l | while read -r link; do
+            find deploy/fnos/mediahub/app/www/server -type l | while read -r link; do
               target="$(readlink -f "$link" || true)"
               if [ -n "$target" ] && [ -e "$target" ]; then
                 rm -f "$link"
@@ -158,66 +158,64 @@ jobs:
             done
           fi
 
-          remaining="$(find MediaHub/mediahub/app/www/server -type l | wc -l)"
+          remaining="$(find deploy/fnos/mediahub/app/www/server -type l | wc -l)"
           echo "server 目录剩余符号链接数量: ${remaining}"
           if [ "${remaining}" -gt 0 ]; then
             echo "仍有符号链接残留，列出："
-            find MediaHub/mediahub/app/www/server -type l
+            find deploy/fnos/mediahub/app/www/server -type l
             exit 1
           fi
 
           echo "打包内容体积："
-          du -sh MediaHub/mediahub/app/www/server MediaHub/mediahub/app/www/public MediaHub/mediahub/app/runtime || true
+          du -sh deploy/fnos/mediahub/app/www/server deploy/fnos/mediahub/app/www/public deploy/fnos/mediahub/app/runtime || true
 
       - name: 同步 manifest 版本与架构
         run: |
-          sed -i "s/^version=.*/version=${{ needs.prepare.outputs.version }}/" MediaHub/mediahub/manifest
-          if grep -q "^platform=" MediaHub/mediahub/manifest; then
-            sed -i "s/^platform=.*/platform=${{ matrix.platform }}/" MediaHub/mediahub/manifest
-          elif grep -q "^arch=" MediaHub/mediahub/manifest; then
+          sed -i "s/^version=.*/version=${{ needs.prepare.outputs.version }}/" deploy/fnos/mediahub/manifest
+          if grep -q "^platform=" deploy/fnos/mediahub/manifest; then
+            sed -i "s/^platform=.*/platform=${{ matrix.platform }}/" deploy/fnos/mediahub/manifest
+          elif grep -q "^arch=" deploy/fnos/mediahub/manifest; then
             if [ "${{ matrix.platform }}" = "x86" ]; then
-              sed -i "s/^arch=.*/arch=x86_64/" MediaHub/mediahub/manifest
+              sed -i "s/^arch=.*/arch=x86_64/" deploy/fnos/mediahub/manifest
             else
-              sed -i "s/^arch=.*/arch=aarch64/" MediaHub/mediahub/manifest
+              sed -i "s/^arch=.*/arch=aarch64/" deploy/fnos/mediahub/manifest
             fi
           else
-            echo "arch=${{ matrix.arch }}" >> MediaHub/mediahub/manifest
+            echo "arch=${{ matrix.arch }}" >> deploy/fnos/mediahub/manifest
           fi
 
       - name: 确保文本文件使用 LF 行尾
         run: |
-          sed -i 's/\r$//' MediaHub/mediahub/cmd/*
-          sed -i 's/\r$//' MediaHub/mediahub/wizard/*
-          sed -i 's/\r$//' MediaHub/mediahub/manifest
-          sed -i 's/\r$//' MediaHub/mediahub/config/* || true
-          sed -i 's/\r$//' MediaHub/mediahub/app/ui/config || true
+          sed -i 's/\r$//' deploy/fnos/mediahub/cmd/*
+          sed -i 's/\r$//' deploy/fnos/mediahub/wizard/*
+          sed -i 's/\r$//' deploy/fnos/mediahub/manifest
+          sed -i 's/\r$//' deploy/fnos/mediahub/config/* || true
+          sed -i 's/\r$//' deploy/fnos/mediahub/app/ui/config || true
 
-      - name: 设置 fnpack 可执行权限
+      - name: 下载 fnpack 并构建 fpk
         run: |
-          chmod +x ${{ matrix.fnpack }}
-          chmod +x MediaHub/mediahub/cmd/*
-
-      - name: 构建 fpk 包
-        run: |
-          cd MediaHub
-          ../${{ matrix.fnpack }} build -d mediahub
+          curl -fsSL -o /tmp/fnpack "https://static2.fnnas.com/fnpack/${{ matrix.fnpack }}"
+          chmod +x /tmp/fnpack
+          chmod +x deploy/fnos/mediahub/cmd/*
+          cd deploy/fnos
+          /tmp/fnpack build -d mediahub
 
       - name: 重命名 fpk 包
         run: |
-          FPK_FILE=$(find MediaHub -maxdepth 3 -type f -name '*.fpk' | head -n 1)
+          FPK_FILE=$(find deploy/fnos -maxdepth 3 -type f -name '*.fpk' | head -n 1)
           if [ -z "$FPK_FILE" ]; then
-            echo "未找到 fnpack 生成的 fpk 文件，当前 MediaHub 目录内容："
-            find MediaHub -maxdepth 3 -print
+            echo "未找到 fnpack 生成的 fpk 文件，当前 deploy/fnos 目录内容："
+            find deploy/fnos -maxdepth 3 -print
             exit 1
           fi
           echo "找到 fpk 包: $FPK_FILE"
-          mv "$FPK_FILE" "MediaHub/mediahub-${{ needs.prepare.outputs.version }}-${{ matrix.arch }}.fpk"
+          mv "$FPK_FILE" "deploy/fnos/mediahub-${{ needs.prepare.outputs.version }}-${{ matrix.arch }}.fpk"
 
       - name: 上传构建产物
         uses: actions/upload-artifact@v4
         with:
           name: mediahub-${{ matrix.arch }}
-          path: MediaHub/mediahub-${{ needs.prepare.outputs.version }}-${{ matrix.arch }}.fpk
+          path: deploy/fnos/mediahub-${{ needs.prepare.outputs.version }}-${{ matrix.arch }}.fpk
 
   release:
     needs: [prepare, package]

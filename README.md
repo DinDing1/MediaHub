@@ -2,62 +2,61 @@
 
 媒体库管理工具，支持云盘自动整理、自动重命名、STRM 文件生成、Emby 302 反代、Telegram、WeChat 通知等功能。
 
-## Docker 部署
+目标运行环境：**飞牛 OS 原生套件**（非 Docker）。
 
-### 快速启动
+## 项目结构
 
-1. 创建 `docker-compose.yml`：
-
-```yaml
-services:
-  mediahub:
-    image: dinding1/mediahub:latest
-    container_name: mediahub
-    ports:
-      - "3030:3030"   # Web 管理界面
-      - "8097:8097"   # Emby 反代端口（可选，启用反代时需要）
-    volumes:
-      - ./data:/app/data                    # 应用数据（数据库等）
-      - ./logs:/app/logs                    # 日志目录
-      - /path/to/your/media:/app/media          # 媒体目录，STRM 文件输出路径
-    environment:
-      - NODE_ENV=production
-      - TZ=Asia/Shanghai
-    restart: unless-stopped
 ```
-
-2. 启动服务：
-
-```bash
-docker compose up -d
+media-dashboard/
+├── app/                 # 前端 (Nuxt pages/components/layouts/...)
+├── server/              # 后端 (Nitro API / utils / plugins)
+├── types/               # 共享 TypeScript 类型
+├── public/              # 静态资源
+├── fonts/               # 封面生成字体
+├── config/              # 版本等配置 (version.json)
+├── deploy/
+│   └── fnos/
+│       └── mediahub/    # 飞牛套件打包源 (manifest/cmd/wizard/...)
+├── docs/                # 文档与截图
+├── nuxt.config.ts
+├── package.json
+└── .github/workflows/
+    └── package.yml      # 飞牛 fpk 构建与发布
 ```
-
-3. 访问 `http://<服务器IP>:3030` 打开管理界面。
-
-### 端口说明
-
-| 端口 | 用途 |
-|------|------|
-| 3030 | Web 管理界面（必须） |
-| 8097 | Emby 302 反代端口（启用反代功能时需要映射） |
-
-### 目录说明
-
-| 容器路径 | 说明 |
-|----------|------|
-| `/app/data` | 应用数据目录（数据库、配置） |
-| `/app/logs` | 日志目录 |
-| `/media` | 媒体目录，STRM 文件输出路径，需映射到宿主机实际媒体目录 |
 
 ## 本地开发
 
 ```bash
-# 安装依赖
 npm install
-
-# 开发模式
 npm run dev
-
-# 构建
-npm run build
 ```
+
+访问 `http://localhost:3030`。
+
+```bash
+npm run build    # 生产构建
+npm run preview  # 预览构建产物
+```
+
+本地运行时数据目录（已 gitignore）：
+
+| 目录 | 说明 |
+|------|------|
+| `data/` | 数据库等应用数据 |
+| `logs/` | 日志 |
+| `media/` | 可选本地媒体目录 |
+
+## 飞牛 OS 安装
+
+1. 从 Release 或 FnDepot 下载对应架构的 `.fpk`
+2. 在飞牛「应用中心」安装套件
+3. 在「应用设置」中授权存储目录（用于 STRM 输出等）
+4. 打开应用完成 115 / Emby 等业务配置；STRM 输出路径在「设置 → STRM 配置」中选择
+
+服务端口：`3030`
+
+## 打包说明
+
+CI 由 `config/version.json` 版本号变更或手动 workflow 触发，产物为飞牛 `.fpk`。
+
+打包目录：`deploy/fnos/mediahub`。
