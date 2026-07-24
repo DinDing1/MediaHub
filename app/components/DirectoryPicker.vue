@@ -99,6 +99,7 @@ interface Directory {
   cid: string
   name: string
   is_dir: boolean
+  type?: 'file' | 'folder'
 }
 
 interface PathItem {
@@ -149,34 +150,58 @@ async function loadFiles() {
   error.value = ''
 
   try {
-    // 优先 GET；部分网关对 GET 异常时回退 POST
-    let response: any
-    try {
-      response = await $fetch(`/api/pan115/fs_files_115?cid=${encodeURIComponent(currentCid.value)}`)
-    } catch (getErr: any) {
-      const status = getErr?.statusCode || getErr?.status || getErr?.response?.status
-      if (status === 405 || status === 404) {
-        response = await $fetch('/api/pan115/fs_files_115', {
-          method: 'POST',
-          body: { cid: currentCid.value }
-        })
-      } else {
-        throw getErr
+    let response: any = null
+    let lastErr: any = null
+
+    // Prefer GET, fallback POST for gateway compatibility
+    for (const mode of ['GET', 'POST'] as const) {
+      try {
+        if (mode === 'GET') {
+          response = await $fetch(`/api/pan115/fs_files_115?cid=${encodeURIComponent(currentCid.value)}`)
+        } else {
+          response = await $fetch('/api/pan115/fs_files_115', {
+            method: 'POST',
+            body: { cid: currentCid.value }
+          })
+        }
+        lastErr = null
+        break
+      } catch (e: any) {
+        lastErr = e
+        // If server returned JSON body with error, prefer that over raw HTTP status
+        const data = e?.data || e?.response?._data
+        if (data && (data.error || data.message || data.success === false)) {
+          response = data
+          lastErr = null
+          break
+        }
       }
     }
 
+    if (lastErr && !response) {
+      const status = lastErr?.statusCode || lastErr?.status || lastErr?.response?.status
+      const msg = lastErr?.data?.error || lastErr?.data?.message || lastErr?.message || "加载失败"
+      error.value = status ? `${msg} (HTTP ${status})` : msg
+      return
+    }
+
     if (response?.success && Array.isArray(response.files)) {
-      directories.value = response.files.filter((f: Directory) => f.is_dir)
-      if (response.path) {
+      directories.value = response.files.filter((f: Directory) => Boolean(f.is_dir) || f.type === 'folder')
+      if (Array.isArray(response.path) && response.path.length) {
         currentPath.value = response.path.slice(1)
       }
     } else {
-      error.value = response?.error || '加载失败'
+      error.value = response?.error || response?.message || "加载失败"
     }
   } catch (e: any) {
-    const status = e?.statusCode || e?.status || e?.response?.status
-    const msg = e?.data?.error || e?.data?.message || e?.message || '加载失败'
-    error.value = status ? `${msg} (${status})` : msg
+    const data = e?.data || e?.response?._data
+    if (data?.error || data?.message) {
+      error.value = data.error || data.message
+    } else {
+      const status = e?.statusCode || e?.status || e?.response?.status
+      const msg = e?.message || "加载失败"
+      error.value = status ? `${msg} (HTTP ${status})` : msg
+    }
   } finally {
     loading.value = false
   }

@@ -9,8 +9,8 @@
 import { log } from '../logger'
 import { enqueueRequest } from '../pan115/request_queue'
 import { getFsCache } from './fs_cache'
-import { getSetting } from '../db'
-import { tryRefreshToken } from '../pan115/open115'
+import { getSetting, setSetting } from '../db'
+import { tryRefreshToken, getAccessTokenByCookie, saveOpenToken } from '../pan115/open115'
 import type { FileItem } from './types'
 
 interface FsOperationResult {
@@ -41,17 +41,20 @@ interface MkdirResult {
 
 
 
+
+/** webapi 备用域名（p115client 风控时轮换） */
 const WEBAPI_ORIGINS = [
   'https://webapi.115.com',
-  'https://web.api.115.com',
+  'http://web.api.115.com',
+  'https://proapi.115.com',
   'https://115cdn.com/webapi',
   'https://115vod.com/webapi',
 ]
 
 const APS_FILES_URL = 'https://aps.115.com/natsort/files.php'
-
-const WEBAPI_BASE = 'https://webapi.115.com'
+const OPEN_FILES_URL = 'https://proapi.115.com/open/ufile/files'
 const PROAPI_BASE = 'https://proapi.115.com'
+const WEBAPI_BASE = 'https://webapi.115.com'
 
 const BROWSER_UA =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
@@ -70,69 +73,112 @@ function getDefaultHeaders(cookie: string, withFormContentType = false): Record<
   return headers
 }
 
-/**
- * 判断 115 列表项是否为目录。
- * 参考 p115client：文件有 fid，目录通常只有 cid。
- * 注意：pc 是 pickcode，不能用来判断是否目录。
- */
 function isDirectoryItem(item: Record<string, any>): boolean {
   if (item == null) return false
   if (item.is_dir === true || item.is_dir === 1 || item.is_dir === '1') return true
-  // 115 文件项一定有 fid；目录通常只有 cid（pc 是 pickcode，不能用来判断）
-  const fid = item.fid
-  if (fid !== undefined && fid !== null && String(fid) !== '') return false
+  if (item.is_dir === false || item.is_dir === 0 || item.is_dir === '0') return false
+
+  // open/app: fc/file_category  0=dir 1=file
+  if (item.fc !== undefined && item.fc !== null && String(item.fc) !== '') {
+    return String(item.fc) === '0'
+  }
+  if (item.file_category !== undefined && item.file_category !== null && String(item.file_category) !== '') {
+    return String(item.file_category) === '0'
+  }
+
+  // webapi: file has fid; directory usually does not
+  if (item.fid !== undefined && item.fid !== null && String(item.fid) !== '') {
+    return false
+  }
+  if ((item.pick_code || item.pc || item.sha1 || item.sha) && (item.file_id || item.fid)) {
+    if (item.cid && !item.fid && String(item.cid) === String(item.file_id || '')) {
+      return true
+    }
+    return false
+  }
   return true
 }
 
 function mapFileItem(item: Record<string, any>, parentCid: string): FileItem {
   const isFolder = isDirectoryItem(item)
   const fileId = isFolder
-    ? String(item.cid ?? item.id ?? '')
-    : String(item.fid ?? item.id ?? '')
+    ? String(item.cid ?? item.file_id ?? item.id ?? '')
+    : String(item.fid ?? item.file_id ?? item.id ?? '')
 
   return {
     type: isFolder ? 'folder' : 'file',
     is_dir: isFolder,
-    name: item.n || item.name || '',
+    name: String(item.n || item.file_name || item.name || ''),
     fileId,
-    cid: String(item.cid ?? item.fid ?? item.id ?? ''),
+    cid: String(item.cid ?? item.file_id ?? item.fid ?? item.id ?? ''),
     parentId: String(item.pid ?? item.parent_id ?? parentCid),
-    size: Number(item.s ?? item.size ?? 0) || 0,
-    updatedAt: item.t || item.date || null,
+    size: Number(item.s ?? item.file_size ?? item.size ?? 0) || 0,
+    updatedAt: item.t || item.user_utime || item.date || null,
     pickcode: String(item.pc ?? item.pick_code ?? item.pickcode ?? '')
   }
 }
 
-function buildListParams(cid: string): URLSearchParams {
-  // 对齐 p115client.tool.fs_files 默认参数
+// p115client default params
+function buildDefaultListParams(cid: string, extra: Record<string, string> = {}): URLSearchParams {
   return new URLSearchParams({
     aid: '1',
     cid: String(cid || '0'),
     offset: '0',
     limit: '1000',
     show_dir: '1',
-    cur: '1',
-    fc_mix: '1',
     count_folders: '1',
     record_open_time: '1',
-    asc: '1',
-    o: 'user_ptime',
-    custom_order: '1'
+    ...extra
   })
 }
 
-async function fetchListOnce(
+function extractListArray(body: any): any[] | null {
+  if (!body) return null
+  if (Array.isArray(body.data)) return body.data
+  if (Array.isArray(body.data?.list)) return body.data.list
+  if (Array.isArray(body.data?.data)) return body.data.data
+  if (Array.isArray(body.list)) return body.list
+  return null
+}
+
+function isListSuccess(body: any): boolean {
+  if (!body || typeof body !== 'object') return false
+  if (body.state === true) return true
+  if (body.code === 0 || body.code === '0') return true
+  if (body.errno === 0 || body.errNo === 0) return true
+  if (extractListArray(body) && body.state == null && body.code == null && body.errno == null) {
+    return true
+  }
+  return false
+}
+
+function listErrorMessage(body: any, status: number): string {
+  if (!body) return 'HTTP ' + status
+  const msg = body.error || body.message || body.msg || body.error_msg
+  const code = body.errno ?? body.errNo ?? body.code ?? body.msg_code
+  if (msg) return code != null ? String(msg) + ' (code=' + code + ')' : String(msg)
+  return 'HTTP ' + status
+}
+
+function isRiskControl(status: number, body: any, errText: string): boolean {
+  if (status === 405 || status === 403) return true
+  const text = ((errText || '') + ' ' + JSON.stringify(body || {})).toLowerCase()
+  return /405|too many|forbidden|风控|拒绝访问|频繁|禁止/i.test(text)
+}
+
+function isAuthError(status: number, body: any, errText: string): boolean {
+  if (status === 401) return true
+  const text = (errText || '') + ' ' + JSON.stringify(body || {})
+  return /99|token|unauthorized|login/i.test(text)
+    || /重新登录|请先登录|登录失效|未登录/.test(text)
+}
+
+async function fetchJson(
   url: string,
-  cookie: string,
-  cid: string
+  init: RequestInit
 ): Promise<{ ok: boolean; status: number; body?: any; error?: string }> {
   try {
-    const response = await fetch(url, {
-      method: 'GET',
-      headers: getDefaultHeaders(cookie, false),
-      redirect: 'follow'
-    })
-
+    const response = await fetch(url, { redirect: 'follow', ...init })
     const status = response.status
     const text = await response.text()
     let body: any = null
@@ -142,22 +188,211 @@ async function fetchListOnce(
       return {
         ok: false,
         status,
-        error: `非 JSON 响应 (${status}): ${text.slice(0, 120)}`
+        error: 'non-json(' + status + '): ' + text.replace(/\s+/g, ' ').slice(0, 120)
       }
     }
-
     if (!response.ok) {
-      return {
-        ok: false,
-        status,
-        body,
-        error: `HTTP ${status}${body?.error ? `: ${body.error}` : ''}`
-      }
+      return { ok: false, status, body, error: listErrorMessage(body, status) }
     }
-
     return { ok: true, status, body }
   } catch (e: any) {
     return { ok: false, status: 0, error: e?.message || String(e) }
+  }
+}
+
+function getOpenTokenIfValid(): string | null {
+  const token = (getSetting('pan115_open_token') || '').trim()
+  return token || null
+}
+
+async function ensureOpenToken(cookie: string): Promise<string | null> {
+  const existing = getOpenTokenIfValid()
+  if (existing) return existing
+
+  const appId = ((getSetting('pan115_app_id') || '').trim() || '100195137')
+  if (!cookie?.trim()) return null
+
+  try {
+    if (!(getSetting('pan115_app_id') || '').trim()) {
+      setSetting('pan115_app_id', appId)
+    }
+    log.info('115', 'ensure open token before list')
+    const result = await getAccessTokenByCookie(cookie, appId)
+    if (result.success && result.openToken && result.refreshToken && result.expiresIn) {
+      saveOpenToken(result.openToken, result.refreshToken, result.expiresIn)
+      log.success('115-open', 'auto auth ok')
+      return result.openToken
+    }
+    log.warn('115-open', 'auto auth failed: ' + (result.error || 'unknown'))
+  } catch (e: any) {
+    log.warn('115-open', 'auto auth error: ' + (e?.message || e))
+  }
+  return null
+}
+
+async function tryOpenApiList(cid: string, tokenHint?: string | null): Promise<ListFilesResult | null> {
+  let token = (tokenHint || getOpenTokenIfValid() || '').trim()
+  if (!token) return null
+
+  const params = buildDefaultListParams(cid)
+  const url = OPEN_FILES_URL + '?' + params.toString()
+  const headers: Record<string, string> = {
+    'User-Agent': BROWSER_UA,
+    'Authorization': 'Bearer ' + token,
+    'Accept': 'application/json, text/plain, */*'
+  }
+
+  let result = await fetchJson(url, { method: 'GET', headers })
+  if (!isListSuccess(result.body)) {
+    const msg = result.error || listErrorMessage(result.body, result.status)
+    if (isAuthError(result.status, result.body, msg) || /token|401|403|99/i.test(msg)) {
+      const refreshed = await tryRefreshToken().catch(() => false)
+      if (refreshed) {
+        token = getOpenTokenIfValid() || ''
+        if (token) {
+          headers.Authorization = 'Bearer ' + token
+          result = await fetchJson(url, { method: 'GET', headers })
+        }
+      }
+    }
+  }
+
+  if (isListSuccess(result.body)) {
+    const arr = extractListArray(result.body)
+    if (arr) {
+      log.info('115', 'open api list ok count=' + arr.length)
+      return { success: true, files: arr.map((item) => mapFileItem(item, cid)) }
+    }
+  }
+
+  log.warn('115', 'open api list failed: ' + (result.error || listErrorMessage(result.body, result.status)))
+  return null
+}
+
+type ListCandidate = {
+  name: string
+  url: string
+  headers: Record<string, string>
+  method?: 'GET' | 'POST'
+  body?: string
+}
+
+async function tryCookieList(cookie: string, cid: string): Promise<ListFilesResult> {
+  const loginApp = (getSetting('pan115_login_app') || 'web').trim() || 'web'
+  const headers = getDefaultHeaders(cookie, false)
+  const formHeaders = getDefaultHeaders(cookie, true)
+
+  const paramsDefault = buildDefaultListParams(cid)
+  const paramsDirsOnly = buildDefaultListParams(cid, { nf: '1', show_dir: '1', cur: '1' })
+  const paramsSorted = buildDefaultListParams(cid, {
+    asc: '1',
+    o: 'user_ptime',
+    custom_order: '2',
+    cur: '1',
+    fc_mix: '0'
+  })
+
+  const candidates: ListCandidate[] = []
+
+  // 1) aps first
+  candidates.push({ name: 'aps:default', url: APS_FILES_URL + '?' + paramsDefault.toString(), headers })
+  candidates.push({ name: 'aps:dirs', url: APS_FILES_URL + '?' + paramsDirsOnly.toString(), headers })
+  candidates.push({ name: 'aps:sorted', url: APS_FILES_URL + '?' + paramsSorted.toString(), headers })
+
+  // 2) proapi by login app
+  const apps = Array.from(new Set([loginApp, 'android', 'ios', 'web', 'chrome', 'tv', 'qandroid']))
+  for (const app of apps) {
+    candidates.push({
+      name: 'proapi:' + app + '/2.0/ufile/files',
+      url: PROAPI_BASE + '/' + app + '/2.0/ufile/files?' + paramsDefault.toString(),
+      headers
+    })
+    candidates.push({
+      name: 'proapi:' + app + '/files',
+      url: PROAPI_BASE + '/' + app + '/files?' + paramsDefault.toString(),
+      headers
+    })
+  }
+
+  // 3) webapi multi-origin
+  for (const origin of WEBAPI_ORIGINS) {
+    candidates.push({
+      name: 'webapi:' + origin,
+      url: origin.replace(/\/$/, '') + '/files?' + paramsDefault.toString(),
+      headers
+    })
+  }
+  candidates.push({ name: 'webapi:dirs', url: WEBAPI_BASE + '/files?' + paramsDirsOnly.toString(), headers })
+  candidates.push({ name: 'webapi:sorted', url: WEBAPI_BASE + '/files?' + paramsSorted.toString(), headers })
+
+  // 4) bare params
+  const paramsBare = new URLSearchParams({ cid: String(cid || '0'), show_dir: '1' })
+  candidates.push({ name: 'aps:bare', url: APS_FILES_URL + '?' + paramsBare.toString(), headers })
+  candidates.push({ name: 'webapi:bare', url: WEBAPI_BASE + '/files?' + paramsBare.toString(), headers })
+  candidates.push({
+    name: 'proapi:' + loginApp + '/2.0/ufile/files:bare',
+    url: PROAPI_BASE + '/' + loginApp + '/2.0/ufile/files?' + paramsBare.toString(),
+    headers
+  })
+
+  // 5) POST fallback
+  candidates.push({
+    name: 'webapi:POST',
+    url: WEBAPI_BASE + '/files',
+    headers: formHeaders,
+    method: 'POST',
+    body: paramsDefault.toString()
+  })
+  candidates.push({
+    name: 'aps:POST',
+    url: APS_FILES_URL,
+    headers: formHeaders,
+    method: 'POST',
+    body: paramsDefault.toString()
+  })
+
+  const errors: string[] = []
+  let riskHits = 0
+
+  for (const c of candidates) {
+    const result = await fetchJson(c.url, {
+      method: c.method || 'GET',
+      headers: c.headers,
+      body: c.body
+    })
+
+    if (isListSuccess(result.body)) {
+      const arr = extractListArray(result.body)
+      if (arr) {
+        log.info('115', 'list ok via ' + c.name + ', count=' + arr.length)
+        return { success: true, files: arr.map((item) => mapFileItem(item, cid)) }
+      }
+      errors.push(c.name + ' => success but no data array')
+      continue
+    }
+
+    const msg = result.error || listErrorMessage(result.body, result.status)
+    // do not hard-fail whole list on one channel's auth error; only stop if message is clearly global login invalid
+    if (/99/.test(msg) && /重新登录|请先登录|登录失效|未登录|login/i.test(msg + JSON.stringify(result.body || {}))) {
+      // continue trying other channels first; record only
+    }
+    if (isRiskControl(result.status, result.body, msg)) riskHits++
+    errors.push(c.name + ' => ' + msg)
+  }
+
+  log.error('115', 'cookie list all failed: ' + errors.slice(0, 12).join(' | '))
+
+  if (riskHits > 0 && riskHits >= Math.min(3, errors.length)) {
+    return {
+      success: false,
+      error: "115 接口风控(HTTP 405)。Cookie 仍可能有效，但 /files 通道被限制。请在设置中确认开放平台 AppID 并重新扫码登录以获取开放平台 Token；或改用 android 设备类型扫码后重试。" + "(共尝试 " + errors.length + " 路)"
+    }
+  }
+
+  const prefer = errors.find(e => /405|risk|风控/.test(e)) || errors[errors.length - 1] || '获取文件列表失败'
+  return {
+    success: false,
+    error: prefer + (errors.length > 1 ? "(共尝试 " + errors.length + " 路)" : '')
   }
 }
 
@@ -166,48 +401,16 @@ async function executeListFiles(
   cid: string
 ): Promise<ListFilesResult> {
   if (!cookie || !cookie.trim()) {
-    return { success: false, error: 'Cookie为空' }
+    return { success: false, error: "Cookie为空" }
   }
 
-  const params = buildListParams(cid)
-  const candidates: string[] = [
-    ...WEBAPI_ORIGINS.map((origin) => `${origin}/files?${params.toString()}`),
-    // p115client 提示 webapi 易被风控，aps natsort 通常更快更稳
-    `${APS_FILES_URL}?${params.toString()}`
-  ]
+  const openToken = await ensureOpenToken(cookie)
+  const openResult = await tryOpenApiList(cid, openToken)
+  if (openResult?.success) return openResult
 
-  const errors: string[] = []
-
-  for (const url of candidates) {
-    const result = await fetchListOnce(url, cookie, cid)
-    if (!result.ok || !result.body) {
-      errors.push(`${url.split('?')[0]} => ${result.error || result.status}`)
-      continue
-    }
-
-    const body = result.body
-    // 115 成功态：state === true；部分接口 errno === 0
-    if (body.state === true && Array.isArray(body.data)) {
-      const files = body.data.map((item: any) => mapFileItem(item, cid))
-      return { success: true, files }
-    }
-
-    const errno = body.errno ?? body.errNo ?? body.code
-    const errMsg = body.error || body.message || body.msg || '获取文件列表失败'
-    // 登录失效
-    if (errno === 99 || /重新登录|请先登录|登录/.test(String(errMsg))) {
-      return { success: false, error: `登录失效，请重新扫码: ${errMsg}` }
-    }
-
-    errors.push(`${url.split('?')[0]} => ${errMsg} (errno=${errno ?? '-'})`)
-  }
-
-  log.error('115云盘', `获取文件列表失败，已尝试 ${candidates.length} 个接口: ${errors.join(' | ')}`)
-  return {
-    success: false,
-    error: errors[errors.length - 1] || '获取文件列表失败'
-  }
+  return tryCookieList(cookie, cid)
 }
+
 
 export async function listFiles(
   cookie: string,

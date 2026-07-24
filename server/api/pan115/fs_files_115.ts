@@ -1,17 +1,16 @@
 /**
- * 115 云盘文件列表 API
- * 用于目录选择器获取子目录
+ * 115 file list API
  */
 import { listFiles } from '../../utils/organize/fs_115'
 import { getSetting } from '../../utils/db'
 import { log } from '../../utils/logger'
 
 export default defineEventHandler(async (event) => {
-  const method = event.method
+  setResponseStatus(event, 200)
 
+  const method = event.method
   if (method !== 'GET' && method !== 'POST') {
-    setResponseStatus(event, 405)
-    return { success: false, error: '不支持的请求方法: ' + method }
+    return { success: false, error: 'unsupported method: ' + method }
   }
 
   let cid = '0'
@@ -25,18 +24,18 @@ export default defineEventHandler(async (event) => {
 
   const cookie = getSetting('pan115_cookie')
   if (!cookie) {
-    return { success: false, error: '未配置 Cookie，请先扫码登录 115' }
+    return { success: false, error: "未配置 Cookie，请先扫码登录 115" }
   }
 
   try {
     const result = await listFiles(cookie, cid, false)
     if (!result.success) {
-      log.warn('115云盘', `目录列表失败 cid=${cid}: ${result.error}`)
+      log.warn('115', `list failed cid=${cid}: ${result.error}`)
     }
     return result
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : String(error)
-    log.error('115云盘', `目录列表异常: ${message}`)
+    log.error('115', 'list exception: ' + message)
     return { success: false, error: message }
   }
 })

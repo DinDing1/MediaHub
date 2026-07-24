@@ -50,7 +50,10 @@ export default defineEventHandler(async (event) => {
         setSetting('pan115_cookie', result.cookie)
         log.success('115云盘', '扫码登录成功，Cookie已自动保存到数据库')
         
-        const appId = getSetting('pan115_app_id')
+        const appId = (getSetting('pan115_app_id') || '').trim() || '100195137'
+        if (!(getSetting('pan115_app_id') || '').trim()) {
+          setSetting('pan115_app_id', appId)
+        }
         if (appId) {
           const tokenResult = await getAccessTokenByCookie(result.cookie, appId)
           if (tokenResult.success && tokenResult.openToken && tokenResult.refreshToken && tokenResult.expiresIn) {

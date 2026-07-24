@@ -4,6 +4,7 @@
  */
 
 import { log } from '../logger'
+import { setSetting } from '../db'
 
 const BASE_URL = 'https://passportapi.115.com'
 
@@ -178,44 +179,69 @@ async function getLoginResult(uid: string): Promise<{ success: boolean; cookie?:
       body: formData.toString()
     })
 
-    if (response.ok) {
-      const result = await response.json()
-      
-      if (result.state === 1) {
-        const data = result.data || {}
-        const cookieObj = data.cookie || {}
-        const cookieParts: string[] = []
-        
-        if (cookieObj.UID) cookieParts.push(`UID=${cookieObj.UID}`)
-        if (cookieObj.CID) cookieParts.push(`CID=${cookieObj.CID}`)
-        if (cookieObj.SEID) cookieParts.push(`SEID=${cookieObj.SEID}`)
-        if (cookieObj.KID) cookieParts.push(`KID=${cookieObj.KID}`)
-        
-        const cookieStr = cookieParts.join('; ')
-        
-        if (cookieStr) {
-          log.success('115云盘', `登录成功，用户: ${data.user_name || '未知'}`)
-          return { success: true, cookie: cookieStr }
-        } else {
-          log.error('115云盘', 'Cookie为空')
-          return { success: false, error: 'Cookie为空' }
-        }
-      } else {
-        log.error('115云盘', `登录失败: ${result.error || '未知错误'}`)
+    if (!response.ok) {
+      log.error('115云盘', `获取登录结果失败 HTTP ${response.status}`)
+      return { success: false, error: `获取登录结果失败: HTTP ${response.status}` }
+    }
+
+    const result = await response.json()
+    if (result.state !== 1) {
+      log.error('115云盘', `登录失败: ${result.error || '未知错误'}`)
+      return { success: false, error: result.error || '登录失败' }
+    }
+
+    const data = result.data || {}
+    const cookieObj = data.cookie || {}
+    const cookieMap = new Map<string, string>()
+
+    // 1) JSON 内 cookie 对象（UID/CID/SEID/KID...）
+    for (const [k, v] of Object.entries(cookieObj)) {
+      if (v != null && String(v) !== '') cookieMap.set(k, String(v))
+    }
+
+    // 2) 响应 Set-Cookie 头补全（更完整，兼容不同设备）
+    const anyHeaders = response.headers as any
+    const rawList: string[] = typeof anyHeaders.getSetCookie === 'function'
+      ? anyHeaders.getSetCookie()
+      : []
+    if (!rawList.length) {
+      const single = response.headers.get('set-cookie')
+      if (single) rawList.push(single)
+    }
+    for (const raw of rawList) {
+      const first = String(raw).split(';')[0]
+      const eq = first.indexOf('=')
+      if (eq > 0) {
+        const k = first.slice(0, eq).trim()
+        const v = first.slice(eq + 1).trim()
+        if (k && v) cookieMap.set(k, v)
       }
     }
-    
-    log.error('115云盘', '获取登录结果失败')
-    return { success: false, error: '获取登录结果失败' }
+
+    // 至少要有 UID + CID
+    if (!cookieMap.has('UID') || !cookieMap.has('CID')) {
+      log.error('115云盘', '登录成功但 Cookie 字段不完整: ' + Array.from(cookieMap.keys()).join(','))
+      return { success: false, error: 'Cookie 字段不完整，请重试扫码' }
+    }
+
+    // 统一顺序：UID; CID; SEID; KID; 其他
+    const orderedKeys = ['UID', 'CID', 'SEID', 'KID', ...Array.from(cookieMap.keys()).filter(k => !['UID','CID','SEID','KID'].includes(k))]
+    const cookieStr = orderedKeys
+      .filter((k, i, arr) => cookieMap.has(k) && arr.indexOf(k) === i)
+      .map(k => `${k}=${cookieMap.get(k)}`)
+      .join('; ')
+
+    // 记录扫码设备，便于后续 app 通道选择
+    try { setSetting('pan115_login_app', app) } catch { /* ignore */ }
+
+    log.success('115云盘', `登录成功，用户: ${data.user_name || '未知'}，设备: ${app}`)
+    return { success: true, cookie: cookieStr }
   } catch (e: any) {
     log.error('115云盘', `获取登录结果异常: ${e.message}`)
     return { success: false, error: e.message }
   }
 }
 
-/**
- * 清除二维码token
- */
 export function clearQRCodeToken(): void {
   qrcodeToken = null
 }
