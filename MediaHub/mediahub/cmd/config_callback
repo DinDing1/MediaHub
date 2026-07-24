@@ -1,7 +1,7 @@
 #!/bin/bash
 
 ### MediaHub config_callback
-### 飞牛在用户保存应用配置后调用。
-### 授权目录由系统通过 TRIM_DATA_ACCESSIBLE_PATHS 注入应用进程，无需额外落盘。
+### 用户在应用设置中保存配置后调用。
+### 授权目录由系统通过 TRIM_DATA_ACCESSIBLE_PATHS 注入应用进程，无需落盘。
 
 exit 0

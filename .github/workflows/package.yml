@@ -112,12 +112,62 @@ jobs:
         run: |
           rm -rf MediaHub/mediahub/app/www
           rm -rf MediaHub/mediahub/app/runtime
-          mkdir -p MediaHub/mediahub/app/www
+          mkdir -p MediaHub/mediahub/app/www/server
+          mkdir -p MediaHub/mediahub/app/www/public
+          mkdir -p MediaHub/mediahub/app/runtime/bin
 
-      - name: 复制服务端文件
+      - name: 下载内置 Node.js 运行时
         run: |
-          cp -r .output/server MediaHub/mediahub/app/www/
-          cp -r .output/public MediaHub/mediahub/app/www/
+          NODE_VERSION="24.15.0"
+          NODE_ARCH="${{ matrix.nodeArch }}"
+          NODE_TAR="node-v${NODE_VERSION}-linux-${NODE_ARCH}.tar.xz"
+          NODE_URL="https://nodejs.org/dist/v${NODE_VERSION}/${NODE_TAR}"
+
+          echo "下载 Node.js 运行时: ${NODE_URL}"
+          curl -fSL -o /tmp/node-runtime.tar.xz "${NODE_URL}"
+
+          tar -xJf /tmp/node-runtime.tar.xz -C /tmp "node-v${NODE_VERSION}-linux-${NODE_ARCH}/bin/node"
+          cp "/tmp/node-v${NODE_VERSION}-linux-${NODE_ARCH}/bin/node" MediaHub/mediahub/app/runtime/bin/node
+          chmod +x MediaHub/mediahub/app/runtime/bin/node
+
+          ls -lh MediaHub/mediahub/app/runtime/bin/node
+          rm -rf /tmp/node-runtime.tar.xz "/tmp/node-v${NODE_VERSION}-linux-${NODE_ARCH}"
+
+      - name: 复制构建产物（解引用符号链接，避免飞牛设置目录权限失败）
+        run: |
+          # 飞牛安装器在处理 Linux npm 生成的 node_modules 符号链接 / Junction 时
+          # 会触发「设置目录权限失败」。使用 rsync -L 解引用为真实文件后再打包。
+          rsync -aL --delete .output/server/ MediaHub/mediahub/app/www/server/
+          rsync -aL --delete .output/public/ MediaHub/mediahub/app/www/public/
+
+          # 清理 npm bin 链接目录（即使解引用后也可能残留）
+          find MediaHub/mediahub/app/www/server -type d -name '.bin' -prune -exec rm -rf {} + 2>/dev/null || true
+
+          # 再次确保不存在符号链接
+          if find MediaHub/mediahub/app/www/server -type l | grep -q .; then
+            echo "检测到残留符号链接，尝试替换为真实文件..."
+            find MediaHub/mediahub/app/www/server -type l | while read -r link; do
+              target="$(readlink -f "$link" || true)"
+              if [ -n "$target" ] && [ -e "$target" ]; then
+                rm -f "$link"
+                cp -a "$target" "$link"
+              else
+                echo "无法解析符号链接: $link"
+                rm -f "$link"
+              fi
+            done
+          fi
+
+          remaining="$(find MediaHub/mediahub/app/www/server -type l | wc -l)"
+          echo "server 目录剩余符号链接数量: ${remaining}"
+          if [ "${remaining}" -gt 0 ]; then
+            echo "仍有符号链接残留，列出："
+            find MediaHub/mediahub/app/www/server -type l
+            exit 1
+          fi
+
+          echo "打包内容体积："
+          du -sh MediaHub/mediahub/app/www/server MediaHub/mediahub/app/www/public MediaHub/mediahub/app/runtime || true
 
       - name: 同步 manifest 版本与架构
         run: |

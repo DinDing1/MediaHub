@@ -1,5 +1,6 @@
 #!/bin/bash
 
-### This script is called before the user change environment variables in application setting page.
+### MediaHub config_init
+### 用户修改应用配置前调用。
 
 exit 0

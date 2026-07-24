@@ -1,6 +1,6 @@
 #!/bin/bash
 
 ### MediaHub install_callback
-### 安装完成后回调，无需处理路径配置。
+### 安装完成后回调
 
 exit 0
