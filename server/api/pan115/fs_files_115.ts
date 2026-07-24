@@ -12,7 +12,7 @@ export default defineEventHandler(async (event) => {
 
   if (method !== 'GET' && method !== 'POST') {
     setResponseStatus(event, 200)
-    return { success: false, error: '????????: ' + method }
+    return { success: false, error: 'unsupported method: ' + method }
   }
 
   let cid = '0'
@@ -39,7 +39,7 @@ export default defineEventHandler(async (event) => {
   if (!cookie) {
     console.warn('[pan115/fs_files_115] no cookie in db/request')
     setResponseStatus(event, 200)
-    return { success: false, error: '??? Cookie??????? 115' }
+    return { success: false, error: 'missing 115 cookie, please QR login first' }
   }
 
   try {
@@ -47,16 +47,16 @@ export default defineEventHandler(async (event) => {
     const result = await listFiles(cookie, cid, false)
     console.log('[pan115/fs_files_115] result success=', result.success, 'files=', result.files?.length, 'error=', result.error)
     if (!result.success) {
-      log.warn('115??', '?????? cid=' + cid + ': ' + result.error)
+      log.warn('115-list', 'list failed cid=' + cid + ': ' + result.error)
     } else {
-      log.info('115??', '?????? cid=' + cid + ' count=' + (result.files?.length || 0))
+      log.info('115-list', 'list ok cid=' + cid + ' count=' + (result.files?.length || 0))
     }
     setResponseStatus(event, 200)
     return result
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : String(error)
     console.error('[pan115/fs_files_115] exception', message)
-    log.error('115??', '??????: ' + message)
+    log.error('115-list', 'list exception: ' + message)
     setResponseStatus(event, 200)
     return { success: false, error: message }
   }

@@ -42,19 +42,21 @@ interface MkdirResult {
 
 
 
-/** webapi 备用域名（p115client 风控时轮换） */
+/** webapi 备用域名（对齐 p115client / OneFive，风控时轮换） */
 const WEBAPI_ORIGINS = [
   'https://webapi.115.com',
+  'http://webapi.115.com',
   'http://web.api.115.com',
-  'https://proapi.115.com',
   'https://115cdn.com/webapi',
   'https://115vod.com/webapi',
+  'https://f.115.com/api/proxy/115',
+  'https://n.115.com/api/proxy/115',
 ]
 
 const APS_FILES_URL = 'https://aps.115.com/natsort/files.php'
 const OPEN_FILES_URL = 'https://proapi.115.com/open/ufile/files'
-const PROAPI_BASE = 'https://proapi.115.com'
 const WEBAPI_BASE = 'https://webapi.115.com'
+const PROAPI_BASE = 'https://proapi.115.com'
 
 const BROWSER_UA =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
@@ -73,12 +75,22 @@ function getDefaultHeaders(cookie: string, withFormContentType = false): Record<
   return headers
 }
 
+/**
+ * 目录判定：兼容 Web / Open / App 返回字段
+ * - Open API 搜索：file_category=0 且无 file_size
+ * - Open/App 列表：fc / file_category === "0"
+ * - Web 列表：有 fid 为文件；目录通常无 fid 而有 cid
+ */
 function isDirectoryItem(item: Record<string, any>): boolean {
   if (item == null) return false
   if (item.is_dir === true || item.is_dir === 1 || item.is_dir === '1') return true
   if (item.is_dir === false || item.is_dir === 0 || item.is_dir === '0') return false
 
-  // open/app: fc/file_category  0=dir 1=file
+  // Open API 搜索结果
+  if (Object.prototype.hasOwnProperty.call(item, 'file_name')) {
+    return item.file_category === 0 || item.file_category === '0'
+  }
+
   if (item.fc !== undefined && item.fc !== null && String(item.fc) !== '') {
     return String(item.fc) === '0'
   }
@@ -86,50 +98,97 @@ function isDirectoryItem(item: Record<string, any>): boolean {
     return String(item.file_category) === '0'
   }
 
-  // webapi: file has fid; directory usually does not
+  // Web API 列表：文件有 fid；目录通常只有 cid
   if (item.fid !== undefined && item.fid !== null && String(item.fid) !== '') {
     return false
   }
-  if ((item.pick_code || item.pc || item.sha1 || item.sha) && (item.file_id || item.fid)) {
-    if (item.cid && !item.fid && String(item.cid) === String(item.file_id || '')) {
-      return true
-    }
-    return false
+  const cidVal = item.cid
+  if (cidVal !== undefined && cidVal !== null && String(cidVal) !== '' && String(cidVal) !== '0') {
+    return true
   }
   return true
 }
 
 function mapFileItem(item: Record<string, any>, parentCid: string): FileItem {
   const isFolder = isDirectoryItem(item)
-  const fileId = isFolder
-    ? String(item.cid ?? item.file_id ?? item.id ?? '')
-    : String(item.fid ?? item.file_id ?? item.id ?? '')
+
+  // 文件名：file_name > fn > n > name
+  const name = String(item.file_name || item.fn || item.n || item.name || '')
+
+  // ID：目录优先 cid；文件优先 fid / file_id
+  let fileId: string
+  if (isFolder) {
+    // Open API 目录也可能用 fid；Web 列表目录用 cid
+    if (item.fc !== undefined || item.file_category !== undefined || Object.prototype.hasOwnProperty.call(item, 'file_name')) {
+      fileId = String(item.file_id ?? item.fid ?? item.cid ?? item.id ?? '')
+    } else {
+      fileId = String(item.cid ?? item.file_id ?? item.fid ?? item.id ?? '')
+    }
+  } else {
+    fileId = String(item.fid ?? item.file_id ?? item.id ?? item.cid ?? '')
+  }
 
   return {
     type: isFolder ? 'folder' : 'file',
     is_dir: isFolder,
-    name: String(item.n || item.file_name || item.name || ''),
+    name,
     fileId,
-    cid: String(item.cid ?? item.file_id ?? item.fid ?? item.id ?? ''),
+    cid: String(item.cid ?? fileId),
     parentId: String(item.pid ?? item.parent_id ?? parentCid),
-    size: Number(item.s ?? item.file_size ?? item.size ?? 0) || 0,
-    updatedAt: item.t || item.user_utime || item.date || null,
+    size: Number(item.s ?? item.fs ?? item.file_size ?? item.size ?? 0) || 0,
+    updatedAt: item.t || item.user_utime || item.upt || item.tp || item.date || null,
     pickcode: String(item.pc ?? item.pick_code ?? item.pickcode ?? '')
   }
 }
 
-// p115client default params
-function buildDefaultListParams(cid: string, extra: Record<string, string> = {}): URLSearchParams {
-  return new URLSearchParams({
+/**
+ * 对齐 p115client.fs_files / OneFive.list_files 的参数合并规则：
+ * defaults: aid/count_folders/limit/offset/record_open_time/show_dir/cid
+ * 若存在 asc / fc_mix / o → custom_order=1（web/open）
+ */
+function buildListParams(
+  cid: string,
+  extra: Record<string, string | number> = {},
+  options: { limit?: number } = {}
+): URLSearchParams {
+  const limit = options.limit ?? 1000
+  const payload: Record<string, string> = {
     aid: '1',
-    cid: String(cid || '0'),
-    offset: '0',
-    limit: '1000',
-    show_dir: '1',
     count_folders: '1',
+    limit: String(limit),
+    offset: '0',
     record_open_time: '1',
-    ...extra
-  })
+    show_dir: '1',
+    cid: String(cid || '0'),
+  }
+  for (const [k, v] of Object.entries(extra)) {
+    if (v === undefined || v === null) continue
+    payload[k] = String(v)
+  }
+  if (('asc' in payload) || ('fc_mix' in payload) || ('o' in payload)) {
+    if (!('custom_order' in payload)) {
+      payload.custom_order = '1'
+    }
+  }
+  return new URLSearchParams(payload)
+}
+
+/** OneFive list_files 默认排序：file_name + asc */
+function buildOneFiveListParams(cid: string, limit = 1000): URLSearchParams {
+  return buildListParams(cid, {
+    o: 'file_name',
+    asc: 1,
+  }, { limit })
+}
+
+/** Web 浏览常见参数（部分账号对 custom_order/file_name 更敏感） */
+function buildBrowseListParams(cid: string, limit = 1000): URLSearchParams {
+  return buildListParams(cid, {
+    cur: 1,
+    fc_mix: 1,
+    o: 'user_ptime',
+    asc: 1,
+  }, { limit })
 }
 
 function extractListArray(body: any): any[] | null {
@@ -163,14 +222,14 @@ function listErrorMessage(body: any, status: number): string {
 function isRiskControl(status: number, body: any, errText: string): boolean {
   if (status === 405 || status === 403) return true
   const text = ((errText || '') + ' ' + JSON.stringify(body || {})).toLowerCase()
-  return /405|too many|forbidden|风控|拒绝访问|频繁|禁止/i.test(text)
+  return /405|too many|forbidden|risk|deny|block/.test(text)
 }
 
 function isAuthError(status: number, body: any, errText: string): boolean {
   if (status === 401) return true
   const text = (errText || '') + ' ' + JSON.stringify(body || {})
   return /99|token|unauthorized|login/i.test(text)
-    || /重新登录|请先登录|登录失效|未登录/.test(text)
+    || /relogin|not.?login|login.?expired|unauth/i.test(text)
 }
 
 async function fetchJson(
@@ -223,27 +282,34 @@ async function ensureOpenToken(cookie: string): Promise<string | null> {
       setSetting('pan115_app_id', appId)
     }
     console.log('[115-list] ensure open token, appId=', appId)
-    log.info('115??', '????????????? Token')
+    log.info('115-open', 'auto acquire open token appId=' + appId)
     const result = await getAccessTokenByCookie(cookie, appId)
     if (result.success && result.openToken && result.refreshToken && result.expiresIn) {
       saveOpenToken(result.openToken, result.refreshToken, result.expiresIn)
       console.log('[115-list] open token acquired')
-      log.success('115????', '??????')
+      log.success('115-open', 'open token acquired')
       return result.openToken
     }
     console.warn('[115-list] open token failed:', result.error || 'unknown')
-    log.warn('115????', '??????: ' + (result.error || 'unknown'))
+    log.warn('115-open', 'open token failed: ' + (result.error || 'unknown'))
   } catch (e: any) {
     log.warn('115-open', 'auto auth error: ' + (e?.message || e))
   }
   return null
 }
 
+/**
+ * Open API 优先（OneFive）：GET https://proapi.115.com/open/ufile/files
+ * 失败（含 405）时返回 null，由 Web 通道回退
+ */
 async function tryOpenApiList(cid: string, tokenHint?: string | null): Promise<ListFilesResult | null> {
   let token = (tokenHint || getOpenTokenIfValid() || '').trim()
-  if (!token) return null
+  if (!token) {
+    console.log('[115-list] open api skip: no token')
+    return null
+  }
 
-  const params = buildDefaultListParams(cid)
+  const params = buildOneFiveListParams(cid, 1000)
   const url = OPEN_FILES_URL + '?' + params.toString()
   const headers: Record<string, string> = {
     'User-Agent': BROWSER_UA,
@@ -251,16 +317,20 @@ async function tryOpenApiList(cid: string, tokenHint?: string | null): Promise<L
     'Accept': 'application/json, text/plain, */*'
   }
 
-  let result = await fetchJson(url, { method: 'GET', headers })
+  console.log('[115-list] try openapi open/ufile/files cid=', cid)
+  let result = await fetchJson(url, { method: 'GET', headers }, 10000)
+
   if (!isListSuccess(result.body)) {
     const msg = result.error || listErrorMessage(result.body, result.status)
+    console.warn('[115-list] open api fail:', msg)
     if (isAuthError(result.status, result.body, msg) || /token|401|403|99/i.test(msg)) {
       const refreshed = await tryRefreshToken().catch(() => false)
       if (refreshed) {
         token = getOpenTokenIfValid() || ''
         if (token) {
           headers.Authorization = 'Bearer ' + token
-          result = await fetchJson(url, { method: 'GET', headers })
+          console.log('[115-list] retry openapi after token refresh')
+          result = await fetchJson(url, { method: 'GET', headers }, 10000)
         }
       }
     }
@@ -270,13 +340,13 @@ async function tryOpenApiList(cid: string, tokenHint?: string | null): Promise<L
     const arr = extractListArray(result.body)
     if (arr) {
       console.log('[115-list] open api OK count=', arr.length)
-      log.info('115??', '???????? count=' + arr.length)
+      log.info('115-list', 'open api ok count=' + arr.length)
       return { success: true, files: arr.map((item) => mapFileItem(item, cid)) }
     }
   }
 
   console.warn('[115-list] open api failed:', result.error || listErrorMessage(result.body, result.status))
-  log.warn('115??', '????????: ' + (result.error || listErrorMessage(result.body, result.status)))
+  log.warn('115-list', 'open api failed: ' + (result.error || listErrorMessage(result.body, result.status)))
   return null
 }
 
@@ -288,66 +358,101 @@ type ListCandidate = {
   body?: string
 }
 
+function joinWebFilesUrl(origin: string, query: string): string {
+  const base = origin.replace(/\/$/, '')
+  // proxy 形式：https://f.115.com/api/proxy/115?domain=webapi&path=/files&...
+  if (base.includes('/api/proxy/115')) {
+    const sep = base.includes('?') ? '&' : '?'
+    return base + sep + 'domain=webapi&path=/files&' + query
+  }
+  return base + '/files?' + query
+}
+
+/**
+ * Cookie Web 通道：对齐 OneFive
+ * 顺序：webapi 多域名（file_name）→ webapi 浏览参数 → POST → aps
+ * 不把 android/ios proapi /files 作为主通道（实测易 405）
+ */
 async function tryCookieList(cookie: string, cid: string): Promise<ListFilesResult> {
-  const loginApp = (getSetting('pan115_login_app') || 'web').trim() || 'web'
   const headers = getDefaultHeaders(cookie, false)
   const formHeaders = getDefaultHeaders(cookie, true)
 
-  const paramsDefault = buildDefaultListParams(cid)
-  const paramsDirsOnly = buildDefaultListParams(cid, { nf: '1', show_dir: '1', cur: '1' })
-  
+  const paramsOneFive = buildOneFiveListParams(cid, 1000)
+  const paramsBrowse = buildBrowseListParams(cid, 1000)
+  const paramsBare = buildListParams(cid, {}, { limit: 1000 })
+  const paramsDirs = buildListParams(cid, { nf: 1, show_dir: 1, cur: 1 }, { limit: 1000 })
+
   const candidates: ListCandidate[] = []
 
-  // Keep a short prioritized list (first success wins). Order matters under 115 risk-control.
-  candidates.push({ name: 'aps:default', url: APS_FILES_URL + '?' + paramsDefault.toString(), headers })
-  candidates.push({ name: 'aps:bare', url: APS_FILES_URL + '?' + new URLSearchParams({ cid: String(cid || '0'), show_dir: '1' }).toString(), headers })
-  candidates.push({
-    name: 'proapi:' + loginApp + '/2.0/ufile/files',
-    url: PROAPI_BASE + '/' + loginApp + '/2.0/ufile/files?' + paramsDefault.toString(),
-    headers
-  })
-  candidates.push({
-    name: 'proapi:android/2.0/ufile/files',
-    url: PROAPI_BASE + '/android/2.0/ufile/files?' + paramsDefault.toString(),
-    headers
-  })
-  candidates.push({ name: 'webapi:main', url: WEBAPI_BASE + '/files?' + paramsDefault.toString(), headers })
-  candidates.push({ name: 'webapi:bare', url: WEBAPI_BASE + '/files?' + new URLSearchParams({ cid: String(cid || '0'), show_dir: '1' }).toString(), headers })
-  candidates.push({ name: 'aps:dirs', url: APS_FILES_URL + '?' + paramsDirsOnly.toString(), headers })
-  candidates.push({
-    name: 'proapi:' + loginApp + '/files',
-    url: PROAPI_BASE + '/' + loginApp + '/files?' + paramsDefault.toString(),
-    headers
-  })
-  candidates.push({
-    name: 'webapi:POST',
-    url: WEBAPI_BASE + '/files',
-    headers: formHeaders,
-    method: 'POST',
-    body: paramsDefault.toString()
-  })
-  candidates.push({
-    name: 'aps:POST',
-    url: APS_FILES_URL,
-    headers: formHeaders,
-    method: 'POST',
-    body: paramsDefault.toString()
-  })
-  // extra origins last
+  // 1) Web multi-origin + OneFive payload
   for (const origin of WEBAPI_ORIGINS) {
-    if (origin === WEBAPI_BASE || origin === PROAPI_BASE) continue
     candidates.push({
-      name: 'webapi:' + origin,
-      url: origin.replace(/\/$/, '') + '/files?' + paramsDefault.toString(),
+      name: 'web:' + origin + ':file_name',
+      url: joinWebFilesUrl(origin, paramsOneFive.toString()),
       headers
     })
   }
 
+  // 2) Web multi-origin + browse defaults
+  for (const origin of WEBAPI_ORIGINS.slice(0, 4)) {
+    candidates.push({
+      name: 'web:' + origin + ':browse',
+      url: joinWebFilesUrl(origin, paramsBrowse.toString()),
+      headers
+    })
+  }
+
+  // 3) bare defaults (no custom sort)
+  candidates.push({
+    name: 'web:main:bare',
+    url: WEBAPI_BASE + '/files?' + paramsBare.toString(),
+    headers
+  })
+
+  // 4) POST form to main webapi
+  candidates.push({
+    name: 'web:main:POST:file_name',
+    url: WEBAPI_BASE + '/files',
+    headers: formHeaders,
+    method: 'POST',
+    body: paramsOneFive.toString()
+  })
+  candidates.push({
+    name: 'web:main:POST:browse',
+    url: WEBAPI_BASE + '/files',
+    headers: formHeaders,
+    method: 'POST',
+    body: paramsBrowse.toString()
+  })
+
+  // 5) APS fallback（p115client.fs_files_aps）
+  candidates.push({
+    name: 'aps:file_name',
+    url: APS_FILES_URL + '?' + paramsOneFive.toString(),
+    headers
+  })
+  candidates.push({
+    name: 'aps:browse',
+    url: APS_FILES_URL + '?' + paramsBrowse.toString(),
+    headers
+  })
+  candidates.push({
+    name: 'aps:dirs',
+    url: APS_FILES_URL + '?' + paramsDirs.toString(),
+    headers
+  })
+  candidates.push({
+    name: 'aps:POST:file_name',
+    url: APS_FILES_URL,
+    headers: formHeaders,
+    method: 'POST',
+    body: paramsOneFive.toString()
+  })
+
   const errors: string[] = []
   let riskHits = 0
 
-  // Prefer first successful channel; log every attempt for diagnose
-  const maxAttempts = Math.min(candidates.length, 14)
+  const maxAttempts = Math.min(candidates.length, 16)
   for (let i = 0; i < maxAttempts; i++) {
     const c = candidates[i]
     console.log('[115-list] try', i + 1 + '/' + maxAttempts, c.name)
@@ -361,7 +466,7 @@ async function tryCookieList(cookie: string, cid: string): Promise<ListFilesResu
       const arr = extractListArray(result.body)
       if (arr) {
         console.log('[115-list] OK via', c.name, 'count=', arr.length)
-        log.info('115云盘', '列表成功 via ' + c.name + ', count=' + arr.length)
+        log.info('115-list', 'ok via ' + c.name + ', count=' + arr.length)
         return { success: true, files: arr.map((item) => mapFileItem(item, cid)) }
       }
       errors.push(c.name + ' => success but no data array')
@@ -375,20 +480,20 @@ async function tryCookieList(cookie: string, cid: string): Promise<ListFilesResu
     errors.push(c.name + ' => ' + msg)
   }
 
-  log.error('115云盘', 'Cookie 通道列表全部失败: ' + errors.slice(0, 12).join(' | '))
+  log.error('115-list', 'all cookie channels failed: ' + errors.slice(0, 12).join(' | '))
   console.error('[115-list] all cookie channels failed', errors.slice(0, 8))
 
   if (riskHits > 0 && riskHits >= Math.min(3, errors.length)) {
     return {
       success: false,
-      error: "115 接口风控(HTTP 405)?Cookie 仍可能有效，但 /files 通道被限制。请确认开放平台 AppID，重新扫码登录以获取 Token；或改用 android 设备类型扫码后重试。" + '(共尝试 ' + errors.length + ' 路)'
+      error: '115 list blocked (HTTP 405/risk-control). Cookie may still be valid. Prefer Open Platform AppID + token; re-scan QR if needed. tried=' + errors.length
     }
   }
 
-  const prefer = errors.find(e => /405|risk|风控/.test(e)) || errors[errors.length - 1] || "获取文件列表失败"
+  const prefer = errors.find(e => /405|risk|block/i.test(e)) || errors[errors.length - 1] || 'list files failed'
   return {
     success: false,
-    error: prefer + (errors.length > 1 ? ('(共尝试 ' + errors.length + ' 路)') : '')
+    error: prefer + (errors.length > 1 ? (' (tried ' + errors.length + ' channels)') : '')
   }
 }
 
@@ -397,16 +502,18 @@ async function executeListFiles(
   cid: string
 ): Promise<ListFilesResult> {
   if (!cookie || !cookie.trim()) {
-    return { success: false, error: "Cookie为空" }
+    return { success: false, error: 'Cookie is empty' }
   }
 
   console.log('[115-list] executeListFiles cid=', cid, 'cookieLen=', cookie.length)
+
+  // OneFive: Open API first, then Web cookie fallback
   const openToken = await ensureOpenToken(cookie)
   console.log('[115-list] openToken present=', !!openToken)
   const openResult = await tryOpenApiList(cid, openToken)
   if (openResult?.success) return openResult
 
-  console.log('[115-list] fallback to cookie channels')
+  console.log('[115-list] fallback to web/aps cookie channels')
   return tryCookieList(cookie, cid)
 }
 
