@@ -4,11 +4,11 @@
         "items": [
             {
                 "type": "tips",
-                "helpText": "欢迎使用 MediaHub！这是一个媒体库管理工具，支持云盘整理、自动重命名、STRM文件生成、Emby 302反代、Telegram、WeChat通知等功能。"
+                "helpText": "欢迎使用 MediaHub！这是一个媒体库管理工具，支持云盘整理、自动重命名、STRM 文件生成、Emby 302 反代、Telegram、WeChat 通知等功能。"
             },
             {
                 "type": "tips",
-                "helpText": "安装完成后，请在应用设置中为 MediaHub 授权媒体目录的读写权限，STRM 文件将保存到授权目录中。"
+                "helpText": "安装完成后，请打开应用完成 115 / Emby 等业务配置。STRM 输出目录请在应用内「设置 → STRM 配置」中选择。"
             }
         ]
     }

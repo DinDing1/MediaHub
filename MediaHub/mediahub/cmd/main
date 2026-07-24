@@ -58,6 +58,8 @@ start_process() {
         export TRIM_PKGVAR="${DATA_DIR}"
         export TRIM_PKGDIR="${APP_ROOT}"
         export TRIM_APPDEST="${APP_ROOT}"
+        # 飞牛应用设置中授权的存储目录，原样透传给 Node（系统启动时注入）
+        export TRIM_DATA_ACCESSIBLE_PATHS="${TRIM_DATA_ACCESSIBLE_PATHS:-}"
         export NITRO_PRESET=node-server
         export PORT="${TRIM_SERVICE_PORT:-3030}"
         exec -a "MediaHub" "${NODE_BIN}" "${APP_ROOT}/www/server/index.mjs"

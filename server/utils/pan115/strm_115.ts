@@ -28,6 +28,7 @@ import { accessSync, constants, existsSync, mkdirSync, writeFileSync } from 'fs'
 import { join, extname, basename, resolve } from 'path'
 import { getSetting } from '../db'
 import { log } from '../logger'
+import { getAccessiblePaths, isPathAuthorized } from '../accessible_paths'
 import { resolvePathToId } from '../organize/fs_115'
 import { sendNotification } from '../telegram/client'
 import { sendWechatNotification } from '../wechat/client'
@@ -85,41 +86,9 @@ interface DirInfo {
   parentId: string
 }
 
-/** STRM 文件输出目录缓存 */
-let mediaPath: string | null = null
-
+/** STRM 文件输出目录（按配置读取，不缓存为 env 自动路径） */
 function normalizePath(targetPath: string): string {
   return resolve(targetPath).replace(/[\\/]+$/, '')
-}
-
-function parseAccessiblePaths(): string[] {
-  const raw = process.env.TRIM_DATA_ACCESSIBLE_PATHS?.trim()
-  if (!raw) return []
-
-  return raw
-    .split(/[:;\n]+/)
-    .map(item => item.trim())
-    .filter(Boolean)
-    .map(normalizePath)
-}
-
-function isSubPath(targetPath: string, basePath: string): boolean {
-  return targetPath === basePath || targetPath.startsWith(`${basePath}/`) || targetPath.startsWith(`${basePath}\\`)
-}
-
-function ensureAuthorizedMediaPath(targetPath: string): string {
-  const normalizedTargetPath = normalizePath(targetPath)
-
-  const accessiblePaths = parseAccessiblePaths()
-  if (accessiblePaths.length === 0) {
-    return normalizedTargetPath
-  }
-
-  if (!accessiblePaths.some(basePath => isSubPath(normalizedTargetPath, basePath))) {
-    log.warn('STRM', `目标目录未出现在授权目录中，改为按目录实际写权限判断: ${normalizedTargetPath}`)
-  }
-
-  return normalizedTargetPath
 }
 
 function ensureWritableDirectory(targetPath: string): void {
@@ -138,34 +107,26 @@ function ensureWritableDirectory(targetPath: string): void {
 
 /**
  * 获取 STRM 文件输出目录
- * 优先级：
- * 1. TRIM_DATA_ACCESSIBLE_PATHS 中的第一个授权目录（飞牛OS应用设置中授权的目录）
- * 2. TRIM_PKGVAR/media（飞牛OS应用数据目录下的 media 子目录）
- * 3. 当前工作目录下的 media 文件夹（本地开发）
+ * 使用设置中的 strm_output_path（前端从飞牛授权目录中选择）
+ * 不再自动使用 TRIM_DATA_ACCESSIBLE_PATHS 的第一个路径
  */
 function getMediaPath(): string {
-  if (!mediaPath) {
-    // 优先使用飞牛授权目录（用户在应用设置中授权的目录）
-    const accessiblePaths = parseAccessiblePaths()
-    let configuredPath: string
-
-    if (accessiblePaths.length > 0) {
-      // 使用第一个授权目录作为媒体输出路径
-      configuredPath = accessiblePaths[0]!
-      log.info('STRM', `使用授权目录作为媒体路径: ${configuredPath}`)
-    } else if (process.env.TRIM_PKGVAR) {
-      // 飞牛环境下没有授权目录，使用应用数据目录下的 media 子目录
-      configuredPath = join(process.env.TRIM_PKGVAR, 'media')
-      log.info('STRM', `未检测到授权目录，使用应用数据目录: ${configuredPath}`)
-    } else {
-      // 本地开发环境
-      configuredPath = join(process.cwd(), 'media')
-    }
-
-    mediaPath = ensureAuthorizedMediaPath(configuredPath)
-    ensureWritableDirectory(mediaPath)
+  const configured = (getSetting('strm_output_path') || '').trim()
+  if (!configured) {
+    throw new Error('未配置 STRM 输出目录，请在「设置 → STRM 配置」中选择飞牛授权目录下的存储路径')
   }
-  return mediaPath
+
+  const targetPath = normalizePath(configured)
+  const accessible = getAccessiblePaths()
+
+  // 有授权目录时必须落在授权范围内
+  if (accessible.length > 0 && !isPathAuthorized(targetPath, accessible)) {
+    throw new Error(`STRM 输出目录不在飞牛授权范围内: ${targetPath}。请重新选择授权目录下的路径`)
+  }
+
+  ensureWritableDirectory(targetPath)
+  log.info('STRM', `使用配置的输出目录: ${targetPath}`)
+  return targetPath
 }
 
 /**

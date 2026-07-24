@@ -11,6 +11,7 @@ export interface SettingsData {
   tmdbApiUrl?: string
   tmdbApiKey?: string
   strmServerUrl?: string
+  strmOutputPath?: string
   fnosCookie?: string
   gladosCookie?: string
   hdhiveCookie?: string

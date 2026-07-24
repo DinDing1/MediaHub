@@ -7,6 +7,7 @@ import { getAllSettings, setSetting } from '../utils/db'
 import { testEmbyConnection, clearEmbyConfigCache } from '../utils/emby/emby'
 import { log } from '../utils/logger'
 import { getBuiltinReleaseGroups } from '../utils/organize/tech_info'
+import { getAccessiblePaths, isPathAuthorized } from '../utils/accessible_paths'
 
 export default defineEventHandler(async (event) => {
   const method = event.method
@@ -30,6 +31,7 @@ export default defineEventHandler(async (event) => {
           tmdbApiUrl: settings.tmdb_api_url || '',
           tmdbApiKey: settings.tmdb_api_key || '',
           strmServerUrl: settings.strm_server_url || '',
+          strmOutputPath: settings.strm_output_path || '',
           fnosCookie: settings.fnos_cookie || '',
           gladosCookie: settings.glados_cookie || '',
           hdhiveCookie: settings.hdhive_cookie || '',
@@ -163,6 +165,17 @@ export default defineEventHandler(async (event) => {
       if (body.strmServerUrl !== undefined) {
         setSetting('strm_server_url', body.strmServerUrl.trim())
         log.success('配置', 'STRM服务器地址已保存')
+      }
+      if (body.strmOutputPath !== undefined) {
+        const outPath = String(body.strmOutputPath || '').trim()
+        if (outPath) {
+          const accessible = getAccessiblePaths()
+          if (accessible.length > 0 && !isPathAuthorized(outPath, accessible)) {
+            return { success: false, error: `STRM 输出目录不在飞牛授权范围内: ${outPath}` }
+          }
+        }
+        setSetting('strm_output_path', outPath)
+        log.success('配置', outPath ? `STRM输出目录已保存: ${outPath}` : 'STRM输出目录已清空')
       }
 
       // 保存飞牛论坛Cookie

@@ -139,6 +139,8 @@ jobs:
           sed -i 's/\r$//' MediaHub/mediahub/cmd/*
           sed -i 's/\r$//' MediaHub/mediahub/wizard/*
           sed -i 's/\r$//' MediaHub/mediahub/manifest
+          sed -i 's/\r$//' MediaHub/mediahub/config/* || true
+          sed -i 's/\r$//' MediaHub/mediahub/app/ui/config || true
 
       - name: 设置 fnpack 可执行权限
         run: |

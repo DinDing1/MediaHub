@@ -57,6 +57,7 @@ export const CONFIG_DEFINITIONS: Record<string, { label: string; description?: s
   wechat_sdk_context_tokens: { label: '微信SDK上下文', description: '@wechatbot/wechatbot SDK 缓存的 context_token' },
   wechat_sdk_typing_tickets: { label: '微信SDK输入状态', description: '@wechatbot/wechatbot SDK 缓存的 typing ticket' },
   strm_server_url: { label: 'STRM服务器地址', description: 'STRM文件中的服务器地址，如 http://192.168.1.100:3000' },
+  strm_output_path: { label: 'STRM输出目录', description: 'STRM文件本地存储路径，须位于飞牛授权目录下' },
   task_checkin_enabled: { label: '签到任务开关', description: '是否启用115自动签到' },
   task_checkin_schedule: { label: '签到任务时间', description: '签到任务执行时间' },
   task_checkin_last_run: { label: '签到上次执行', description: '签到任务上次执行时间' },

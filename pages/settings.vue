@@ -713,10 +713,44 @@
           </div>
 
           <div class="form-group">
+            <label class="form-label" :class="{ dark: isDark }">STRM 输出目录</label>
+            <div class="input-with-btn">
+              <input
+                v-model="strmForm.outputPath"
+                type="text"
+                placeholder="从飞牛授权目录中选择"
+                class="form-input"
+                :class="{ dark: isDark }"
+                readonly
+                @click="openStrmPathPicker"
+              />
+              <button
+                type="button"
+                class="btn-browse"
+                :class="{ dark: isDark }"
+                @click="openStrmPathPicker"
+                title="选择目录"
+              >
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
+                </svg>
+              </button>
+            </div>
+
+          </div>
+
+          <div class="form-group form-actions-row">
+            <button
+              type="button"
+              class="btn btn-secondary"
+              @click="loadStrmAccessiblePaths"
+            >
+              刷新授权目录
+            </button>
             <button
               type="button"
               class="btn btn-primary"
-              :disabled="strmGenerating"
+              :disabled="strmGenerating || !strmForm.serverUrl.trim() || !strmForm.outputPath.trim()"
               @click="generateStrm"
             >
               <span v-if="strmGenerating">生成中...</span>
@@ -826,6 +860,77 @@
       </Transition>
     </Teleport>
 
+
+    <!-- STRM 本地路径选择器（飞牛授权目录） -->
+    <Teleport to="body">
+      <Transition name="fade">
+        <div v-if="showStrmPathPicker" class="qrcode-modal-overlay" @click.self="showStrmPathPicker = false">
+          <Transition name="zoom">
+            <div v-if="showStrmPathPicker" class="strm-path-modal" :class="{ dark: isDark }">
+              <div class="qrcode-header">
+                <h3>选择 STRM 输出目录</h3>
+                <button class="btn-close" :class="{ dark: isDark }" @click="showStrmPathPicker = false">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <line x1="18" y1="6" x2="6" y2="18"/>
+                    <line x1="6" y1="6" x2="18" y2="18"/>
+                  </svg>
+                </button>
+              </div>
+
+              <div class="strm-path-nav" :class="{ dark: isDark }">
+                <span
+                  class="strm-path-nav-item"
+                  :class="{ dark: isDark }"
+                  @click="strmPickerGoRoot"
+                >授权目录</span>
+                <template v-for="(b, i) in strmPickerBreadcrumbs" :key="b.path">
+                  <span class="strm-path-nav-sep">/</span>
+                  <span
+                    class="strm-path-nav-item"
+                    :class="{ dark: isDark }"
+                    @click="strmPickerNavigateTo(i)"
+                  >{{ b.name }}</span>
+                </template>
+              </div>
+
+              <div class="strm-path-list">
+                <div v-if="strmPickerLoading" class="strm-path-empty">加载中...</div>
+                <div v-else-if="strmPickerDirs.length === 0" class="strm-path-empty">此目录为空</div>
+                <template v-else>
+                  <div
+                    v-for="dir in strmPickerDirs"
+                    :key="dir"
+                    class="strm-path-item"
+                    :class="{ dark: isDark, active: strmPickerCurrentPath === dir }"
+                    @click="strmPickerEnterDir(dir)"
+                  >
+                    <svg viewBox="0 0 24 24" fill="currentColor">
+                      <path d="M10 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z"/>
+                    </svg>
+                    <span>{{ pathBasename(dir) }}</span>
+                  </div>
+                </template>
+              </div>
+
+              <div class="strm-path-foot" :class="{ dark: isDark }">
+                <span class="strm-path-current" :class="{ dark: isDark, empty: !strmPickerCurrentPath }">
+                  {{ strmPickerCurrentPath || '请选择目录' }}
+                </span>
+                <div class="strm-path-actions">
+                  <button type="button" class="btn btn-secondary" @click="showStrmPathPicker = false">取消</button>
+                  <button
+                    type="button"
+                    class="btn btn-primary"
+                    :disabled="!strmPickerCurrentPath"
+                    @click="confirmStrmPathPick"
+                  >确定</button>
+                </div>
+              </div>
+            </div>
+          </Transition>
+        </div>
+      </Transition>
+    </Teleport>
     <!-- 目录选择器 -->
     <DirectoryPicker
       v-model:show="showDirPicker"
@@ -1100,9 +1205,16 @@ const wechatQRCodeUrl = ref('')
 const wechatInitializing = ref(false)
 
 const strmForm = reactive({
-  serverUrl: ''
+  serverUrl: '',
+  outputPath: ''
 })
 const strmGenerating = ref(false)
+const strmAccessiblePaths = ref<string[]>([])
+const showStrmPathPicker = ref(false)
+const strmPickerBreadcrumbs = ref<{ name: string; path: string }[]>([])
+const strmPickerDirs = ref<string[]>([])
+const strmPickerLoading = ref(false)
+const strmPickerCurrentPath = ref('')
 
 const showDirPicker = ref(false)
 const currentDirPickerTarget = ref<'save' | 'media'>('save')
@@ -1392,6 +1504,8 @@ async function loadSettings() {
       tmdbForm.apiUrl = settingsRes.data.tmdbApiUrl || ''
       tmdbForm.apiKey = settingsRes.data.tmdbApiKey || ''
       strmForm.serverUrl = settingsRes.data.strmServerUrl || ''
+      strmForm.outputPath = settingsRes.data.strmOutputPath || ''
+      loadStrmAccessiblePaths()
       aiForm.enabled = settingsRes.data.aiRecognizeEnabled === 'true'
       aiForm.apiKey = settingsRes.data.aiApiKey || ''
       aiForm.apiUrl = settingsRes.data.aiApiUrl || ''
@@ -1655,6 +1769,7 @@ async function saveAllConfig() {
     tmdbApiUrl: tmdbForm.apiUrl.trim(),
     tmdbApiKey: tmdbForm.apiKey.trim(),
     strmServerUrl: strmForm.serverUrl.trim(),
+    strmOutputPath: strmForm.outputPath.trim(),
     aiRecognizeEnabled: aiForm.enabled ? 'true' : 'false',
     aiApiKey: aiForm.apiKey.trim(),
     aiApiUrl: aiForm.apiUrl.trim(),
@@ -1946,6 +2061,11 @@ async function generateStrm() {
     messageType.value = 'error'
     return
   }
+  if (!strmForm.outputPath.trim()) {
+    message.value = '请选择 STRM 输出目录'
+    messageType.value = 'error'
+    return
+  }
   
   strmGenerating.value = true
   message.value = ''
@@ -2150,6 +2270,91 @@ async function wechatLogout() {
   }
 }
 
+
+function pathBasename(p: string): string {
+  return p.split(/[\\/]/).filter(Boolean).pop() || p
+}
+
+async function loadStrmAccessiblePaths() {
+  try {
+    const res = await $fetch('/api/strm/accessible-paths') as any
+    if (res?.success && res.data) {
+      strmAccessiblePaths.value = res.data.paths || []
+    } else {
+      strmAccessiblePaths.value = []
+    }
+  } catch (e) {
+    console.error('加载授权目录失败:', e)
+    strmAccessiblePaths.value = []
+  }
+}
+
+async function openStrmPathPicker() {
+  await loadStrmAccessiblePaths()
+  strmPickerBreadcrumbs.value = []
+  strmPickerCurrentPath.value = ''
+  strmPickerDirs.value = [...strmAccessiblePaths.value]
+  showStrmPathPicker.value = true
+  if (strmAccessiblePaths.value.length === 0) {
+    message.value = '未检测到飞牛授权目录，请先在飞牛应用设置中授权存储目录后重启应用'
+    messageType.value = 'error'
+  }
+}
+
+function strmPickerGoRoot() {
+  strmPickerBreadcrumbs.value = []
+  strmPickerCurrentPath.value = ''
+  strmPickerDirs.value = [...strmAccessiblePaths.value]
+}
+
+async function strmPickerEnterDir(dir: string) {
+  const dirName = pathBasename(dir)
+  if (strmAccessiblePaths.value.includes(dir)) {
+    strmPickerBreadcrumbs.value = [{ name: dirName, path: dir }]
+  } else {
+    strmPickerBreadcrumbs.value.push({ name: dirName, path: dir })
+  }
+  strmPickerCurrentPath.value = dir
+  await loadStrmPickerSubDirs(dir)
+}
+
+function strmPickerNavigateTo(idx: number) {
+  strmPickerBreadcrumbs.value = strmPickerBreadcrumbs.value.slice(0, idx + 1)
+  const currentPath = strmPickerBreadcrumbs.value[idx]?.path || ''
+  strmPickerCurrentPath.value = currentPath
+  loadStrmPickerSubDirs(currentPath)
+}
+
+async function loadStrmPickerSubDirs(path: string) {
+  strmPickerLoading.value = true
+  try {
+    const res = await $fetch('/api/strm/accessible-paths/children', {
+      query: { path }
+    }) as any
+    if (res?.success && res.data) {
+      strmPickerDirs.value = res.data.dirs || []
+      if (res.data.error) {
+        message.value = res.data.error
+        messageType.value = 'error'
+      }
+    } else {
+      strmPickerDirs.value = []
+    }
+  } catch (e) {
+    console.error('加载子目录失败:', e)
+    message.value = '加载子目录失败'
+    messageType.value = 'error'
+    strmPickerDirs.value = []
+  } finally {
+    strmPickerLoading.value = false
+  }
+}
+
+function confirmStrmPathPick() {
+  if (!strmPickerCurrentPath.value) return
+  strmForm.outputPath = strmPickerCurrentPath.value
+  showStrmPathPicker.value = false
+}
 function openSaveDirPicker() {
   if (!pan115Form.cookie.trim()) {
     message.value = '请先扫码登录115云盘'
@@ -3961,4 +4166,173 @@ input:checked + .toggle-slider:before {
   border-color: rgba(248, 113, 113, 0.2);
 }
 
+
+.form-hint {
+  margin: 8px 0 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: #64748b;
+}
+
+.form-hint.dark {
+  color: #94a3b8;
+}
+
+.form-hint.warning {
+  color: #d97706;
+}
+
+.form-hint.warning.dark {
+  color: #fbbf24;
+}
+
+.form-actions-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+}
+
+.strm-path-modal {
+  width: min(100%, 520px);
+  max-height: min(80vh, 640px);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border-radius: 28px;
+  border: 1px solid rgba(255, 255, 255, 0.72);
+  background: rgba(255, 255, 255, 0.9);
+  box-shadow:
+    0 28px 70px rgba(15, 23, 42, 0.14),
+    inset 0 1px 0 rgba(255, 255, 255, 0.68);
+  backdrop-filter: blur(24px);
+}
+
+.strm-path-modal.dark {
+  border-color: rgba(148, 163, 184, 0.18);
+  background: rgba(15, 23, 42, 0.92);
+  box-shadow:
+    0 28px 70px rgba(2, 6, 23, 0.42),
+    inset 0 1px 0 rgba(255, 255, 255, 0.04);
+}
+
+.strm-path-nav {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  padding: 12px 20px;
+  border-bottom: 1px solid rgba(226, 232, 240, 0.62);
+  font-size: 13px;
+}
+
+.strm-path-nav.dark {
+  border-bottom-color: rgba(71, 85, 105, 0.42);
+}
+
+.strm-path-nav-item {
+  color: #2563eb;
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.strm-path-nav-item.dark {
+  color: #93c5fd;
+}
+
+.strm-path-nav-item:hover {
+  text-decoration: underline;
+}
+
+.strm-path-nav-sep {
+  color: #94a3b8;
+  margin: 0 2px;
+}
+
+.strm-path-list {
+  flex: 1;
+  min-height: 220px;
+  max-height: 360px;
+  overflow-y: auto;
+  padding: 8px 12px;
+}
+
+.strm-path-empty {
+  padding: 40px 16px;
+  text-align: center;
+  color: #94a3b8;
+  font-size: 13px;
+}
+
+.strm-path-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  cursor: pointer;
+  color: #0f172a;
+  transition: background 0.15s ease;
+}
+
+.strm-path-item.dark {
+  color: #e2e8f0;
+}
+
+.strm-path-item:hover,
+.strm-path-item.active {
+  background: rgba(37, 99, 235, 0.08);
+}
+
+.strm-path-item.dark:hover,
+.strm-path-item.dark.active {
+  background: rgba(96, 165, 250, 0.12);
+}
+
+.strm-path-item svg {
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+  color: #f59e0b;
+}
+
+.strm-path-item span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+}
+
+.strm-path-foot {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px 20px 18px;
+  border-top: 1px solid rgba(226, 232, 240, 0.62);
+}
+
+.strm-path-foot.dark {
+  border-top-color: rgba(71, 85, 105, 0.42);
+}
+
+.strm-path-current {
+  font-size: 12px;
+  color: #334155;
+  word-break: break-all;
+  line-height: 1.45;
+}
+
+.strm-path-current.dark {
+  color: #cbd5e1;
+}
+
+.strm-path-current.empty {
+  color: #94a3b8;
+}
+
+.strm-path-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
 </style>
