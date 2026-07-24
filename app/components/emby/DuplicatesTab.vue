@@ -323,6 +323,7 @@
 </template>
 
 <script setup lang="ts">
+import { clientLog } from '~/utils/client_log'
 import { ref, computed, onMounted } from 'vue'
 import { useSettings } from '~/composables/useSettings'
 
@@ -760,7 +761,7 @@ const loadLibraries = async () => {
       }
     }
   } catch (e) {
-    console.error('加载媒体库失败:', e)
+    clientLog.error('DuplicatesTab', '加载媒体库失败:', e)
   }
 }
 
@@ -830,13 +831,13 @@ const startAnalysis = async () => {
               }
             }
           } catch (e) {
-            console.error('解析数据失败:', e)
+            clientLog.error('DuplicatesTab', '解析数据失败:', e)
           }
         }
       }
     }
   } catch (e) {
-    console.error('查重失败:', e)
+    clientLog.error('DuplicatesTab', '查重失败:', e)
     currentMessage.value = ''
   } finally {
     isAnalyzing.value = false

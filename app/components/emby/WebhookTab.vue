@@ -172,6 +172,7 @@
 </template>
 
 <script setup lang="ts">
+import { clientLog } from '~/utils/client_log'
 import { ref, computed, onMounted } from 'vue'
 import { useSettings } from '~/composables/useSettings'
 
@@ -291,7 +292,7 @@ const loadLogs = async () => {
       }
     }
   } catch (error) {
-    console.error('Failed to load webhook logs:', error)
+    clientLog.error('WebhookTab', 'Failed to load webhook logs:', error)
   }
 }
 
@@ -305,7 +306,7 @@ const loadConfig = async () => {
       }
     }
   } catch (error) {
-    console.error('Failed to load webhook config:', error)
+    clientLog.error('WebhookTab', 'Failed to load webhook config:', error)
   }
 }
 

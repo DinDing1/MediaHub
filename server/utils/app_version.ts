@@ -1,26 +1,14 @@
 /**
- * 应用版本信息（唯一源：config/version.json）
- * 业务代码请从这里读取，避免硬编码版本号。
+ * 服务端版本信息出口（实现见 config/app_version.ts）
  */
-import versionInfo from '../../config/version.json'
+export {
+  type AppVersionInfo,
+  appVersionInfo,
+  APP_VERSION,
+  APP_VERSION_LABEL,
+  APP_AUTHOR,
+  APP_YEAR,
+  APP_GITHUB
+} from '../../config/app_version'
 
-export interface AppVersionInfo {
-  version: string
-  author: string
-  year: number
-  github?: string
-}
-
-export const appVersionInfo = versionInfo as AppVersionInfo
-
-/** 语义化版本号，如 1.1.3 */
-export const APP_VERSION = appVersionInfo.version
-
-/** 展示用版本号，如 v1.1.3 */
-export const APP_VERSION_LABEL = `v${APP_VERSION}`
-
-export const APP_AUTHOR = appVersionInfo.author
-export const APP_YEAR = appVersionInfo.year
-export const APP_GITHUB = appVersionInfo.github || ''
-
-export default appVersionInfo
+export { default } from '../../config/app_version'

@@ -321,6 +321,7 @@
 </template>
 
 <script setup lang="ts">
+import { clientLog } from '~/utils/client_log'
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { formatShanghaiDateKey } from '~/utils/time'
 
@@ -485,7 +486,7 @@ const loadLibraries = async () => {
       }
     }
   } catch (e) {
-    console.error('加载媒体库失败:', e)
+    clientLog.error('MissingDetectionTab', '加载媒体库失败:', e)
   }
 }
 
@@ -501,19 +502,19 @@ const startAnalysis = async () => {
   const libraryId = selectedLibrary.value || 'all'
   const url = `/api/emby/missing?action=analyze&library_id=${libraryId}&stream=true`
   
-  console.log('[缺失检测] 开始连接:', url)
+  clientLog.info('MissingDetectionTab', '[缺失检测] 开始连接:', url)
   
   eventSource = new EventSource(url)
   
   eventSource.onopen = () => {
-    console.log('[缺失检测] 连接已建立')
+    clientLog.info('MissingDetectionTab', '[缺失检测] 连接已建立')
     currentShow.value = '已连接，等待数据...'
   }
   
   eventSource.onmessage = (event) => {
     try {
       const msg = JSON.parse(event.data)
-      console.log('[缺失检测] 收到消息:', msg.type)
+      clientLog.info('MissingDetectionTab', '[缺失检测] 收到消息:', msg.type)
       
       if (msg.type === 'connected') {
         currentShow.value = '已连接，开始分析...'
@@ -547,7 +548,7 @@ const startAnalysis = async () => {
           }, 600)
         }
       } else if (msg.type === 'complete') {
-        console.log('[缺失检测] 分析完成')
+        clientLog.info('MissingDetectionTab', '[缺失检测] 分析完成')
         isAnalyzing.value = false
         currentShow.value = '分析完成'
         if (eventSource) {
@@ -556,12 +557,12 @@ const startAnalysis = async () => {
         }
       }
     } catch (e) {
-      console.error('[缺失检测] 解析消息失败:', e)
+      clientLog.error('MissingDetectionTab', '[缺失检测] 解析消息失败:', e)
     }
   }
   
   eventSource.onerror = () => {
-    console.error('[缺失检测] EventSource 错误')
+    clientLog.error('MissingDetectionTab', '[缺失检测] EventSource 错误')
     isAnalyzing.value = false
     currentShow.value = '连接失败，请重试'
     if (eventSource) {
@@ -647,7 +648,7 @@ const saveCorrection = async () => {
       closeCorrectionDialog()
     }
   } catch (e) {
-    console.error('保存纠错失败:', e)
+    clientLog.error('MissingDetectionTab', '保存纠错失败:', e)
   }
 }
 
@@ -670,7 +671,7 @@ const removeCorrection = async (show: ShowReport) => {
       }
     }
   } catch (e) {
-    console.error('移除纠错失败:', e)
+    clientLog.error('MissingDetectionTab', '移除纠错失败:', e)
   }
 }
 

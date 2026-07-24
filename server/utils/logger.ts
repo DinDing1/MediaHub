@@ -78,10 +78,14 @@ function cleanOldLogs(): void {
       files.slice(MAX_LOG_FILES).forEach(f => {
         try {
           unlinkSync(f.path)
-        } catch (e) {}
+        } catch {
+          // ignore fs edge during log rotation/write
+        }
       })
     }
-  } catch (e) {}
+  } catch {
+          // ignore fs edge during log rotation/write
+        }
 }
 
 function writeToFile(level: string, module: string, message: string, details?: string): void {
@@ -114,7 +118,9 @@ function emitLog(level: SimpleLogEntry['level'], tag: string, message: string) {
     tagSubscribers.forEach(callback => {
       try {
         callback(entry)
-      } catch (e) {}
+      } catch {
+          // ignore fs edge during log rotation/write
+        }
     })
   }
 }

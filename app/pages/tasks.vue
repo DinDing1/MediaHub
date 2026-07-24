@@ -349,6 +349,7 @@
 </template>
 
 <script setup lang="ts">
+import { clientLog } from '~/utils/client_log'
 import { ref, reactive, onMounted, watch } from 'vue'
 import { h } from 'vue'
 import { useSettings } from '~/composables/useSettings'
@@ -598,7 +599,7 @@ async function openFnosConfig() {
       fnosCookie.value = response.data.fnosCookie || ''
     }
   } catch (e) {
-    console.error('获取配置失败:', e)
+    clientLog.error('tasks', '获取配置失败:', e)
   }
   showFnosConfigModal.value = true
 }
@@ -642,7 +643,7 @@ async function openGladosConfig() {
       gladosCookie.value = response.data.gladosCookie || ''
     }
   } catch (e) {
-    console.error('获取配置失败:', e)
+    clientLog.error('tasks', '获取配置失败:', e)
   }
   showGladosConfigModal.value = true
 }
@@ -752,7 +753,7 @@ async function openHdhiveConfig() {
       hdhiveBaseUrl.value = response.data.hdhiveBaseUrl || ''
     }
   } catch (e) {
-    console.error('获取配置失败:', e)
+    clientLog.error('tasks', '获取配置失败:', e)
   }
   showHdhiveConfigModal.value = true
 }
@@ -808,7 +809,7 @@ async function loadTasks() {
       })
     }
   } catch (e) {
-    console.error('加载任务失败:', e)
+    clientLog.error('tasks', '加载任务失败:', e)
   }
 }
 

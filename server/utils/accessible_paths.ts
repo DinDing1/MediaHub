@@ -1,7 +1,7 @@
 /**
  * 飞牛授权目录工具
  *
- * 飞牛正式环境：
+ * 正式环境：
  *   用户在「应用设置」中授权/变更存储目录后，系统会调用 config_callback，
  *   将最新的 TRIM_DATA_ACCESSIBLE_PATHS 落盘到 ${TRIM_PKGVAR}/accessible_paths.env。
  *   本模块每次读取都重新打开该文件，因此无需重启应用即可生效。
@@ -61,7 +61,7 @@ function normalizePath(targetPath: string): string {
 
 /**
  * 飞牛正式环境落盘文件（config_callback / 启动脚本写入）
- * 与 OneFive 一致：放在 TRIM_PKGVAR 根下，便于权限与回调读写
+ * 与 OneFive 一致：放在 TRIM_PKGVAR 根下
  */
 export function getAccessiblePathsFile(): string | null {
   const pkgVar = (process.env.TRIM_PKGVAR || '').trim()
@@ -90,8 +90,8 @@ function readPathsFromFile(filePath: string): string[] | null {
 /**
  * 获取飞牛授权可访问路径列表（每次调用重新读取，支持热更新）
  * 优先级：
- * 1. ${TRIM_PKGVAR}/accessible_paths.env（config_callback 写入的最新值）
- * 2. 环境变量 TRIM_DATA_ACCESSIBLE_PATHS（进程启动快照，兜底）
+ * 1. ${TRIM_PKGVAR}/accessible_paths.env
+ * 2. 环境变量 TRIM_DATA_ACCESSIBLE_PATHS
  * 3. 本地开发 data/accessible_paths.env
  */
 export function getAccessiblePaths(): string[] {
@@ -122,9 +122,12 @@ export function getAccessiblePaths(): string[] {
   return []
 }
 
-/** 校验路径是否位于某个授权目录下（等于或是子路径） */
-export function isPathAuthorized(targetPath: string, accessible: string[] = getAccessiblePaths()): boolean {
-  if (!targetPath?.trim()) return false
+/**
+ * 判断目标路径是否在授权范围内
+ */
+export function isPathAuthorized(targetPath: string, accessiblePaths?: string[]): boolean {
+  const accessible = accessiblePaths ?? getAccessiblePaths()
+  if (!accessible.length) return false
 
   let target: string
   try {
@@ -180,7 +183,8 @@ export function listAccessibleChildren(path: string): { dirs: string[]; error?: 
     }
     dirs.sort((a, b) => basename(a).localeCompare(basename(b), undefined, { sensitivity: 'base' }))
     return { dirs }
-  } catch (error: any) {
-    return { dirs: [], error: error?.message || '列出子目录失败' }
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : '列出子目录失败'
+    return { dirs: [], error: message }
   }
 }

@@ -940,6 +940,7 @@
 </template>
 
 <script setup lang="ts">
+import { clientLog } from '~/utils/client_log'
 import { computed, ref, reactive, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import { useSettings } from '~/composables/useSettings'
 
@@ -1209,12 +1210,6 @@ const strmForm = reactive({
   outputPath: ''
 })
 const strmGenerating = ref(false)
-const strmAccessiblePaths = ref<string[]>([])
-const showStrmPathPicker = ref(false)
-const strmPickerBreadcrumbs = ref<{ name: string; path: string }[]>([])
-const strmPickerDirs = ref<string[]>([])
-const strmPickerLoading = ref(false)
-const strmPickerCurrentPath = ref('')
 
 const showDirPicker = ref(false)
 const currentDirPickerTarget = ref<'save' | 'media'>('save')
@@ -1228,6 +1223,27 @@ const errors = reactive({
 const saving = ref(false)
 const message = ref('')
 const messageType = ref<'success' | 'warning' | 'error'>('success')
+
+const {
+  strmAccessiblePaths,
+  showStrmPathPicker,
+  strmPickerBreadcrumbs,
+  strmPickerDirs,
+  strmPickerLoading,
+  strmPickerCurrentPath,
+  pathBasename,
+  loadStrmAccessiblePaths,
+  openStrmPathPicker,
+  strmPickerGoRoot,
+  strmPickerEnterDir,
+  strmPickerNavigateTo,
+  loadStrmPickerSubDirs,
+  confirmStrmPathPick: confirmStrmPathPickBase
+} = useStrmPathPicker({ message, messageType })
+
+function confirmStrmPathPick() {
+  confirmStrmPathPickBase((p) => { strmForm.outputPath = p })
+}
 let messageTimer: NodeJS.Timeout | null = null
 
 const showApiKey = ref(false)
@@ -1393,7 +1409,7 @@ async function saveAppId() {
     })
     updateSettingsData({ pan115AppId: appId })
   } catch (e: any) {
-    console.error('保存AppID失败:', e)
+    clientLog.error('settings', '保存AppID失败:', e)
   }
 }
 
@@ -1448,7 +1464,7 @@ async function loadTelegramConfig() {
       /* 手风琴默认全部折叠 */
     }
   } catch (e: any) {
-    console.error('加载 Telegram 配置失败:', e)
+    clientLog.error('settings', '加载 Telegram 配置失败:', e)
   }
 }
 
@@ -1542,7 +1558,7 @@ async function loadSettings() {
       }
     }
   } catch (e: any) {
-    console.error('加载配置失败:', e)
+    clientLog.error('settings', '加载配置失败:', e)
   }
 }
 
@@ -1564,7 +1580,7 @@ function pollWechatStatus() {
         }
       }
     } catch (e) {
-      console.error('轮询微信状态失败:', e)
+      clientLog.error('settings', '轮询微信状态失败:', e)
     }
   }, 2000)
 
@@ -1606,7 +1622,7 @@ async function loadDeviceTypes() {
       deviceTypes.value = response.devices
     }
   } catch (e: any) {
-    console.error('加载设备类型失败:', e)
+    clientLog.error('settings', '加载设备类型失败:', e)
   }
 }
 
@@ -2162,7 +2178,7 @@ async function loadWechatConfig() {
       }
     }
   } catch (e: any) {
-    console.error('加载微信配置失败:', e)
+    clientLog.error('settings', '加载微信配置失败:', e)
   }
 }
 
@@ -2227,7 +2243,7 @@ function startWechatLoginPolling() {
         }
       }
     } catch (e) {
-      console.error('轮询微信登录状态失败:', e)
+      clientLog.error('settings', '轮询微信登录状态失败:', e)
     }
   }, 2000)
 }
@@ -2271,104 +2287,6 @@ async function wechatLogout() {
 }
 
 
-function pathBasename(p: string): string {
-  return p.split(/[\\/]/).filter(Boolean).pop() || p
-}
-
-async function loadStrmAccessiblePaths(showFeedback = false) {
-  try {
-    const res = await $fetch('/api/strm/accessible-paths') as any
-    if (res?.success && res.data) {
-      strmAccessiblePaths.value = res.data.paths || []
-    } else {
-      strmAccessiblePaths.value = []
-    }
-    if (showFeedback) {
-      const n = strmAccessiblePaths.value.length
-      if (n > 0) {
-        message.value = `已刷新授权目录（${n} 个），无需重启应用`
-        messageType.value = 'success'
-      } else {
-        message.value = '未检测到授权目录，请先在飞牛「应用设置」中授权存储目录后再刷新'
-        messageType.value = 'error'
-      }
-    }
-  } catch (e) {
-    console.error('加载授权目录失败:', e)
-    strmAccessiblePaths.value = []
-    if (showFeedback) {
-      message.value = '刷新授权目录失败'
-      messageType.value = 'error'
-    }
-  }
-}
-
-async function openStrmPathPicker() {
-  await loadStrmAccessiblePaths()
-  strmPickerBreadcrumbs.value = []
-  strmPickerCurrentPath.value = ''
-  strmPickerDirs.value = [...strmAccessiblePaths.value]
-  showStrmPathPicker.value = true
-  if (strmAccessiblePaths.value.length === 0) {
-    message.value = '未检测到授权目录，请先在飞牛「应用设置」中授权存储目录，然后点击「刷新授权目录」'
-    messageType.value = 'error'
-  }
-}
-
-function strmPickerGoRoot() {
-  strmPickerBreadcrumbs.value = []
-  strmPickerCurrentPath.value = ''
-  strmPickerDirs.value = [...strmAccessiblePaths.value]
-}
-
-async function strmPickerEnterDir(dir: string) {
-  const dirName = pathBasename(dir)
-  if (strmAccessiblePaths.value.includes(dir)) {
-    strmPickerBreadcrumbs.value = [{ name: dirName, path: dir }]
-  } else {
-    strmPickerBreadcrumbs.value.push({ name: dirName, path: dir })
-  }
-  strmPickerCurrentPath.value = dir
-  await loadStrmPickerSubDirs(dir)
-}
-
-function strmPickerNavigateTo(idx: number) {
-  strmPickerBreadcrumbs.value = strmPickerBreadcrumbs.value.slice(0, idx + 1)
-  const currentPath = strmPickerBreadcrumbs.value[idx]?.path || ''
-  strmPickerCurrentPath.value = currentPath
-  loadStrmPickerSubDirs(currentPath)
-}
-
-async function loadStrmPickerSubDirs(path: string) {
-  strmPickerLoading.value = true
-  try {
-    const res = await $fetch('/api/strm/accessible-paths/children', {
-      query: { path }
-    }) as any
-    if (res?.success && res.data) {
-      strmPickerDirs.value = res.data.dirs || []
-      if (res.data.error) {
-        message.value = res.data.error
-        messageType.value = 'error'
-      }
-    } else {
-      strmPickerDirs.value = []
-    }
-  } catch (e) {
-    console.error('加载子目录失败:', e)
-    message.value = '加载子目录失败'
-    messageType.value = 'error'
-    strmPickerDirs.value = []
-  } finally {
-    strmPickerLoading.value = false
-  }
-}
-
-function confirmStrmPathPick() {
-  if (!strmPickerCurrentPath.value) return
-  strmForm.outputPath = strmPickerCurrentPath.value
-  showStrmPathPicker.value = false
-}
 function openSaveDirPicker() {
   if (!pan115Form.cookie.trim()) {
     message.value = '请先扫码登录115云盘'

@@ -1,135 +1,35 @@
-import { createHash } from 'crypto'
+/**
+ * Emby 反代 Nitro 插件
+ * 常量/类型/缓存见 server/utils/emby/proxy/*
+ */
 import { createServer, IncomingMessage, ServerResponse } from 'http'
 import { Readable } from 'stream'
 import { getSetting } from '../utils/db'
 import { log } from '../utils/logger'
 import { getDirectLink } from '../utils/pan115/direct_link_115'
-
-/**
- * Emby 反代的基础超时与缓存策略。
- *
- * 设计目标：
- * 1. 普通请求尽量少干预，优先保证登录与页面初始化稳定。
- * 2. 媒体请求尽量走最短链路，优先命中 302，提高首播与重复播放速度。
- * 3. 缓存只做短时加速，不做长期持久化，避免旧链接残留太久。
- */
-const API_TIMEOUT = 30000
-const REDIRECT_RESOLVE_TIMEOUT = 10000
-const PLAYBACK_INFO_CACHE_TTL_MS = 90000
-const PLAYBACK_URL_CACHE_TTL_MS = 45000
-const PLAYBACK_STRM_CACHE_TTL_MS = 300000
-const CACHE_HIT_LOG_THROTTLE_MS = 5000
-const MAX_CACHE_SIZE = 500
-
-/**
- * Emby 常见媒体直链路由。
- *
- * 这里只匹配真正可能进入播放链路的接口，后续再结合名称排除字幕、附加内容等非主媒体请求。
- */
-const MEDIA_ROUTE_PATTERNS = [
-  /^\/audio\/([^/]+)\/([^/?#]+)/i,
-  /^\/emby\/audio\/([^/]+)\/([^/?#]+)/i,
-  /^\/videos\/([^/]+)\/([^/?#]+)/i,
-  /^\/emby\/videos\/([^/]+)\/([^/?#]+)/i,
-  /^\/items\/([^/]+)\/download$/i,
-  /^\/emby\/items\/([^/]+)\/download$/i,
-  /^\/items\/([^/]+)\/file$/i,
-  /^\/emby\/items\/([^/]+)\/file$/i,
-  /^\/sync\/jobitems\/([^/]+)\/file$/i,
-  /^\/emby\/sync\/jobitems\/([^/]+)\/file$/i
-]
-
-const NON_MEDIA_NAMES = new Set([
-  'additionalparts',
-  'subtitles',
-  'similar',
-  'thememedia',
-  'themevideos',
-  'themesongs',
-  'specialfeatures',
-  'linkeditems'
-])
-
-const HOP_BY_HOP_HEADERS = new Set([
-  'connection',
-  'keep-alive',
-  'proxy-authenticate',
-  'proxy-authorization',
-  'te',
-  'trailers',
-  'transfer-encoding',
-  'upgrade'
-])
-
-const CACHE_KEY_HEADERS = [
-  'authorization',
-  'cookie',
-  'x-emby-token',
-  'x-emby-authorization',
-  'user-agent',
-  'x-emby-device-id',
-  'x-emby-device-name',
-  'x-emby-client',
-  'x-emby-client-version',
-  'x-device-id',
-  'x-device-name',
-  'x-client'
-]
-
-const EMBY_AUTH_TOKEN_RE = /Token="([^"]+)"/i
-
-interface ProxySettings {
-  embyUrl: string
-  embyApiKey: string
-  enabled: boolean
-}
-
-interface MediaSource {
-  Id?: string
-  Path?: string
-  DirectStreamUrl?: string
-  [key: string]: any
-}
-
-/**
- * PlaybackInfo 是给反代内部使用的最小媒体源信息结构。
- *
- * 这里不再像重型版本那样对外改写 PlaybackInfo 响应，
- * 只在媒体请求到来时，内部查询一次 Emby，用来判断当前条目最终能否走 302。
- */
-interface PlaybackInfoResponse {
-  MediaSources?: MediaSource[]
-  [key: string]: any
-}
-
-/**
- * 通用缓存项结构。
- * value 为缓存值，expiresAt 为过期时间戳。
- */
-interface CacheEntry<T> {
-  value: T
-  expiresAt: number
-}
-
-/**
- * 三类短时内存缓存：
- * 1. playbackInfoCache：缓存 Emby PlaybackInfo，减少短时间重复查询。
- * 2. playbackUrlCache：缓存“某次媒体请求最终应 302 到哪里”，直接加速重复播放/seek/range。
- * 3. strmSourceCache：缓存从 PlaybackInfo 中提取到的远程 HTTP / d115 源路径。
- *
- * 注意：这些缓存都只存在于当前 Node 进程内，不落盘，重启即失效。
- */
-const playbackInfoCache = new Map<string, CacheEntry<PlaybackInfoResponse>>()
-const playbackUrlCache = new Map<string, CacheEntry<string>>()
-const strmSourceCache = new Map<string, CacheEntry<Record<string, string>>>()
-
-/**
- * 缓存命中日志节流表。
- *
- * 播放器在播放、拖动、重试时会短时间反复请求同一资源，
- * 如果每次命中都打日志，会严重刷屏，因此按 cache key 做节流。
- */
-const cacheHitLogTimestamps = new Map<string, number>()
+import {
+  API_TIMEOUT,
+  REDIRECT_RESOLVE_TIMEOUT,
+  PLAYBACK_INFO_CACHE_TTL_MS,
+  PLAYBACK_URL_CACHE_TTL_MS,
+  PLAYBACK_STRM_CACHE_TTL_MS,
+  MEDIA_ROUTE_PATTERNS,
+  NON_MEDIA_NAMES,
+  HOP_BY_HOP_HEADERS,
+  EMBY_AUTH_TOKEN_RE
+} from '../utils/emby/proxy/constants'
+import type { ProxySettings, MediaSource, PlaybackInfoResponse } from '../utils/emby/proxy/types'
+import {
+  playbackInfoCache,
+  playbackUrlCache,
+  strmSourceCache,
+  getPlaybackInfoCacheKey,
+  getPlaybackUrlCacheKey,
+  getStrmSourceCacheKey,
+  getCacheValue,
+  setCacheValue,
+  shouldLogCacheHit
+} from '../utils/emby/proxy/cache'
 
 let server: ReturnType<typeof createServer> | null = null
 
@@ -270,79 +170,12 @@ function buildForwardHeaders(
   return headers
 }
 
-function getHeaderHash(requestHeaders: Record<string, string>): string {
-  const parts: string[] = []
 
-  for (const headerName of CACHE_KEY_HEADERS) {
-    const matchedKey = Object.keys(requestHeaders).find(key => key.toLowerCase() === headerName)
-    if (matchedKey && requestHeaders[matchedKey]) {
-      parts.push(`${headerName}:${requestHeaders[matchedKey]}`)
-    }
-  }
 
-  return createHash('sha256').update(parts.join('\n')).digest('hex')
-}
 
-function getPlaybackInfoCacheKey(itemId: string, mediaSourceId: string, requestHeaders: Record<string, string>): string {
-  return `${itemId}:${mediaSourceId}:${getHeaderHash(requestHeaders)}`
-}
 
-function getPlaybackUrlCacheKey(itemId: string, mediaSourceId: string, requestHeaders: Record<string, string>): string {
-  return `${itemId}:${mediaSourceId}:${getHeaderHash(requestHeaders)}`
-}
 
-function getStrmSourceCacheKey(itemId: string, requestHeaders: Record<string, string>): string {
-  return `${itemId}:${getHeaderHash(requestHeaders)}`
-}
 
-function getCacheValue<T>(cache: Map<string, CacheEntry<T>>, key: string): T | undefined {
-  const entry = cache.get(key)
-  if (!entry) {
-    return undefined
-  }
-
-  if (entry.expiresAt <= Date.now()) {
-    cache.delete(key)
-    return undefined
-  }
-
-  return entry.value
-}
-
-function setCacheValue<T>(cache: Map<string, CacheEntry<T>>, key: string, value: T, ttlMs: number): void {
-  const now = Date.now()
-
-  for (const [cacheKey, entry] of cache) {
-    if (entry.expiresAt <= now) {
-      cache.delete(cacheKey)
-    }
-  }
-
-  while (cache.size >= MAX_CACHE_SIZE) {
-    const oldestKey = cache.keys().next().value
-    if (!oldestKey) {
-      break
-    }
-    cache.delete(oldestKey)
-  }
-
-  cache.set(key, {
-    value,
-    expiresAt: now + ttlMs
-  })
-}
-
-function shouldLogCacheHit(key: string): boolean {
-  const now = Date.now()
-  const lastLoggedAt = cacheHitLogTimestamps.get(key) || 0
-
-  if (now - lastLoggedAt < CACHE_HIT_LOG_THROTTLE_MS) {
-    return false
-  }
-
-  cacheHitLogTimestamps.set(key, now)
-  return true
-}
 
 /**
  * 从 /api/d115/... 或 /d115/... 路径中提取 pickcode 与文件名。
@@ -878,7 +711,7 @@ export default defineNitroPlugin(() => {
     log.info('Emby反代', `访问地址: http://<服务器IP>:${port}`)
   })
 
-  server.on('error', (error: any) => {
+  server.on('error', (error: NodeJS.ErrnoException) => {
     if (error.code === 'EADDRINUSE') {
       log.error('Emby反代', `端口 ${port} 已被占用`)
       return
@@ -887,3 +720,4 @@ export default defineNitroPlugin(() => {
     log.error('Emby反代', `服务器错误: ${error.message}`)
   })
 })
+

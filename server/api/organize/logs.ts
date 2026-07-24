@@ -28,7 +28,9 @@ export default defineEventHandler(async (event) => {
         const sendLog = (entry: LogEntry) => {
           try {
             controller.enqueue(encoder.encode(`data: ${JSON.stringify(entry)}\n\n`))
-          } catch (e) {}
+          } catch (e: unknown) {
+            /* ignore parse/stream edge */
+          }
         }
         
         const unsubscribe = logEmitter.subscribe('整理', sendLog)
@@ -36,7 +38,9 @@ export default defineEventHandler(async (event) => {
         logEmitter.getRecentLogs('整理').forEach(entry => {
           try {
             controller.enqueue(encoder.encode(`data: ${JSON.stringify(entry)}\n\n`))
-          } catch (e) {}
+          } catch (e: unknown) {
+            /* ignore parse/stream edge */
+          }
         })
         
         const keepAlive = setInterval(() => {
@@ -53,7 +57,9 @@ export default defineEventHandler(async (event) => {
           unsubscribe()
           try {
             controller.close()
-          } catch (e) {}
+          } catch (e: unknown) {
+            /* ignore parse/stream edge */
+          }
         }, 300000)
         
         event.node.req.on('close', () => {

@@ -1156,6 +1156,8 @@
 </template>
 
 <script setup lang="ts">
+import { clientLog } from '~/utils/client_log'
+import { isVideoFile, isSubtitleFile, formatSize } from '~/utils/organize_file'
 import { ref, onMounted, watch, onUnmounted, computed } from 'vue'
 import { useSettings } from '~/composables/useSettings'
 import { formatShanghaiDateTime } from '~/utils/time'
@@ -1283,29 +1285,6 @@ interface LogEntry {
   message: string
 }
 
-const VIDEO_EXTS = ['.mp4', '.mkv', '.avi', '.mov', '.wmv', '.flv', '.webm', '.m4v', '.ts', '.m2ts', '.mpg', '.mpeg', '.rmvb', '.rm', '.vob', '.iso']
-const SUBTITLE_EXTS = ['.srt', '.ass', '.ssa', '.sub', '.vtt', '.idx', '.sup', '.smi']
-
-function getFileExtension(name: string): string {
-  const dotIndex = name.lastIndexOf('.')
-  return dotIndex === -1 ? '' : name.substring(dotIndex).toLowerCase()
-}
-
-function isVideoFile(name: string): boolean {
-  return VIDEO_EXTS.includes(getFileExtension(name))
-}
-
-function isSubtitleFile(name: string): boolean {
-  return SUBTITLE_EXTS.includes(getFileExtension(name))
-}
-
-function formatSize(bytes: number): string {
-  if (bytes === 0) return '0 B'
-  const k = 1024
-  const sizes = ['B', 'KB', 'MB', 'GB', 'TB']
-  const i = Math.floor(Math.log(bytes) / Math.log(k))
-  return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i]
-}
 
 function showToast(msg: string, type: 'success' | 'error' | 'info' = 'success') {
   message.value = msg
@@ -1784,7 +1763,9 @@ async function executeOrganize() {
       if (startMatch && startMatch[1]) {
         organizeProgress.value.total = parseInt(startMatch[1], 10)
       }
-    } catch (e) {}
+    } catch (e: unknown) {
+      clientLog.debug('organize', e)
+    }
   }
 
   try {
@@ -1935,7 +1916,9 @@ async function loadSettings() {
         cronExpression: autoResponse.data.cronExpression
       }
     }
-  } catch (e) {}
+  } catch (e: unknown) {
+      clientLog.debug('organize', e)
+    }
 }
 
 function openSettingsModal() {

@@ -274,6 +274,7 @@
 </template>
 
 <script setup lang="ts">
+import { clientLog } from '~/utils/client_log'
 import { ref, onMounted } from 'vue'
 
 interface Props {
@@ -346,7 +347,7 @@ const loadLibraries = async () => {
       }
     }
   } catch (e) {
-    console.error('加载媒体库失败:', e)
+    clientLog.error('CoverGeneratorTab', '加载媒体库失败:', e)
     configError.value = '网络错误，请检查服务器连接'
   } finally {
     isLoadingLibraries.value = false
@@ -373,7 +374,7 @@ const loadFonts = async () => {
       }
     }
   } catch (e) {
-    console.error('加载字体失败:', e)
+    clientLog.error('CoverGeneratorTab', '加载字体失败:', e)
     fontError.value = '网络错误，请检查服务器连接'
   } finally {
     isLoadingFonts.value = false
@@ -408,7 +409,7 @@ const generatePreview = async () => {
       }
     }
   } catch (e) {
-    console.error('生成封面失败:', e)
+    clientLog.error('CoverGeneratorTab', '生成封面失败:', e)
   } finally {
     isGenerating.value = false
   }
@@ -436,7 +437,7 @@ const saveCover = async () => {
       }
     }
   } catch (e) {
-    console.error('保存封面失败:', e)
+    clientLog.error('CoverGeneratorTab', '保存封面失败:', e)
   } finally {
     isSaving.value = false
   }

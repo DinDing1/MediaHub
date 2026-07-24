@@ -67,10 +67,20 @@ export default defineNuxtConfig({
       }
     },
     externals: {
+      // native / 重依赖：由 Nitro trace 到 .output/server/node_modules，避免打进巨大 bundle
       external: [
         'better-sqlite3',
-        'node-cron'
+        'node-cron',
+        'sharp',
+        'telegram',
+        '@wechatbot/wechatbot',
+        'grammy',
+        'socks-proxy-agent',
+        'https-proxy-agent',
+        'socks',
+        'agent-base'
       ],
+      // 仅保留打包时确实需要强制内联的小型依赖
       inline: [
         '@iconify/utils',
         'ms',
@@ -80,14 +90,8 @@ export default defineNuxtConfig({
         'domelementtype',
         'domhandler',
         'domutils',
-        'telegram',
         'big-integer',
         'mime',
-        '@wechatbot/wechatbot',
-        'socks-proxy-agent',
-        'socks',
-        'agent-base',
-        'https-proxy-agent',
         'qrcode',
         'dijkstrajs',
         'abort-controller',

@@ -82,7 +82,9 @@ function findLatestLogFile(): string | null {
     if (latest) {
       return latest.path
     }
-  } catch (e) {}
+  } catch (e: unknown) {
+    // ignore malformed log line
+  }
 
   return null
 }

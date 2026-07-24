@@ -229,6 +229,7 @@
 </template>
 
 <script setup lang="ts">
+import { clientLog } from '~/utils/client_log'
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { formatShanghaiDateTime } from '~/utils/time'
 
@@ -410,7 +411,7 @@ const loadLibraries = async () => {
   } catch (error: any) {
     libraries.value = []
     librariesError.value = error?.data?.error || error?.message || '媒体库加载失败，请检查 Emby 配置或连接状态。'
-    console.error('加载媒体库失败:', error)
+    clientLog.error('MediaInfoTab', '加载媒体库失败:', error)
   } finally {
     loadingLibraries.value = false
   }
@@ -432,7 +433,7 @@ const loadTaskConfig = async () => {
       }
     }
   } catch (error) {
-    console.error('加载媒体信息配置失败:', error)
+    clientLog.error('MediaInfoTab', '加载媒体信息配置失败:', error)
   }
 }
 
@@ -443,7 +444,7 @@ const loadFollowConfig = async () => {
       followEnabledValue.value = response.data.enabled === true ? 'true' : 'false'
     }
   } catch (error) {
-    console.error('加载追更配置失败:', error)
+    clientLog.error('MediaInfoTab', '加载追更配置失败:', error)
   }
 }
 
@@ -497,7 +498,7 @@ const loadStatus = async () => {
       syncConfigFromStatus()
     }
   } catch (error) {
-    console.error('加载媒体信息提取状态失败:', error)
+    clientLog.error('MediaInfoTab', '加载媒体信息提取状态失败:', error)
   } finally {
     loadingStatus.value = false
   }
@@ -517,7 +518,7 @@ const loadFollowStatus = async () => {
       syncPollingState()
     }
   } catch (error) {
-    console.error('加载追更状态失败:', error)
+    clientLog.error('MediaInfoTab', '加载追更状态失败:', error)
   } finally {
     loadingFollowStatus.value = false
   }
