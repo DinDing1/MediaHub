@@ -108,6 +108,8 @@ jobs:
           test -f nuxt.config.ts
           test -f package.json
           test -f config/version.json
+          # 应用版本唯一源：config/version.json，须与 package.json 保持一致
+          node -e "const v=require('./config/version.json').version; const p=require('./package.json').version; if(v!==p){console.error('版本不一致: config/version.json='+v+' package.json='+p); process.exit(1)}; console.log('应用版本: '+v)"
           test -d app
           test -f app/app.vue
           test -f app/utils/time.ts

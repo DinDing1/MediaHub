@@ -28,7 +28,6 @@
  * 
  * @module server/api/emby/cover/preview
  * @author FNOS Media Dashboard
- * @version 1.0.0
  */
 
 import { defineEventHandler, readBody } from 'h3'

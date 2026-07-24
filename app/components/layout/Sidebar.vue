@@ -86,16 +86,16 @@
 
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue'
-import versionInfo from '../../config/version.json'
+import { APP_VERSION_LABEL, APP_AUTHOR, APP_YEAR, APP_GITHUB } from '~/utils/app_version'
 
 const colorMode = useColorMode()
 const isDark = computed(() => colorMode.value === 'dark')
 const systemArch = ref('')
 
-const appVersion = `v${versionInfo.version}`
-const appAuthor = versionInfo.author
-const appYear = versionInfo.year
-const githubUrl = versionInfo.github || ''
+const appVersion = APP_VERSION_LABEL
+const appAuthor = APP_AUTHOR
+const appYear = APP_YEAR
+const githubUrl = APP_GITHUB
 
 const archClass = computed(() => {
   if (systemArch.value === 'Arm') return 'arch-arm'

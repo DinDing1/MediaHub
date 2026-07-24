@@ -12,7 +12,6 @@
  * 
  * @module server/api/emby/cover/fonts
  * @author FNOS Media Dashboard
- * @version 1.0.0
  */
 
 import { defineEventHandler } from 'h3'

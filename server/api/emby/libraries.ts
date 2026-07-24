@@ -25,7 +25,6 @@
  * 
  * @module server/api/emby/libraries
  * @author FNOS Media Dashboard
- * @version 1.0.0
  */
 
 import { defineEventHandler } from 'h3'

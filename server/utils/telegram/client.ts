@@ -9,6 +9,7 @@ import { getSetting, setSetting } from '../db'
 import { log } from '../logger'
 import { handleCommand, setCommandClient, handleShareLink } from './commands'
 import { sendBotNotification, initBot } from './bot'
+import { APP_VERSION } from '../app_version'
 
 interface TelegramGlobalState {
   client: TelegramClient | null
@@ -155,7 +156,7 @@ function buildClient(config: TelegramConfig, sessionString: string): TelegramCli
     proxy: proxyConfig,
     deviceModel: 'MediaHub',
     systemVersion: process.platform === 'win32' ? 'Windows' : process.platform === 'darwin' ? 'macOS' : 'Linux',
-    appVersion: '1.0.0',
+    appVersion: APP_VERSION,
     langCode: 'zh',
     systemLangCode: 'zh'
   })

@@ -74,3 +74,16 @@ CI（`.github/workflows/package.yml`）由 `config/version.json` 版本号变更
 npm run typecheck
 npm run build
 ```
+
+## 版本管理
+
+应用版本**唯一源**为 `config/version.json`（当前与 `package.json` 同步）。
+
+升级版本时请同时修改：
+
+1. `config/version.json` 的 `version` 字段（会触发飞牛 fpk 打包）
+2. `package.json` 的 `version` 字段（保持一致）
+
+前端侧栏与后端 Telegram 客户端等均从上述配置读取，请勿在业务代码中硬编码版本号。
+
+飞牛套件 `deploy/fnos/mediahub/manifest` 中的 `version` 由 CI 打包时自动写入，无需手改。

@@ -62,7 +62,7 @@ export default defineEventHandler(async (event) => {
         Server: {
           Id: 'test',
           Name: 'Test Server',
-          Version: '1.0.0'
+          Version: '1.0.0' // mock Emby server version（非应用版本）
         }
       }
       

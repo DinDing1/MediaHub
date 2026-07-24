@@ -18,7 +18,6 @@
  * 
  * @module server/utils/emby/cover_generator
  * @author FNOS Media Dashboard
- * @version 1.0.0
  */
 
 import { log } from '../logger'
