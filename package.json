@@ -9,7 +9,7 @@
     "generate": "nuxt generate",
     "preview": "nuxt preview",
     "postinstall": "nuxt prepare",
-    "lint": "eslint .",
+    "lint": "nuxt typecheck",
     "typecheck": "nuxt typecheck",
     "rebuild": "npm rebuild better-sqlite3"
   },

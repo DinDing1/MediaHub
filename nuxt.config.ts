@@ -1,9 +1,16 @@
+import { fileURLToPath } from 'node:url'
+import { dirname, join } from 'node:path'
+
+const rootDir = dirname(fileURLToPath(import.meta.url))
+
 export default defineNuxtConfig({
   compatibilityDate: '2024-03-18',
+  // Frontend sources live in app/; Nitro server stays at repo-root server/
   srcDir: 'app',
   serverDir: 'server',
+  // Static assets stay at repo-root public/
   dir: {
-    public: '../public'
+    public: join(rootDir, 'public')
   },
   devtools: { enabled: false },
   sourcemap: {
@@ -89,7 +96,8 @@ export default defineNuxtConfig({
     },
     publicAssets: [
       {
-        dir: 'fonts',
+        // Cover fonts at repo-root fonts/ (absolute, independent of srcDir)
+        dir: join(rootDir, 'fonts'),
         maxAge: 60 * 60 * 24 * 365
       }
     ]

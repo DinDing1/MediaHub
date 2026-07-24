@@ -25,6 +25,10 @@ on:
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  FNOS_PKG_DIR: deploy/fnos/mediahub
+  FNOS_PKG_PARENT: deploy/fnos
+  FNPACK_BASE_URL: https://static2.fnnas.com/fnpack
+  NODE_RUNTIME_VERSION: '24.15.0'
 
 permissions:
   contents: write
@@ -97,56 +101,104 @@ jobs:
       - name: 检出代码
         uses: actions/checkout@v4
 
+      - name: 校验仓库目录结构
+        run: |
+          set -euo pipefail
+          echo "校验前端/后端/飞牛打包源目录..."
+          test -f nuxt.config.ts
+          test -f package.json
+          test -f config/version.json
+          test -d app
+          test -f app/app.vue
+          test -f app/utils/time.ts
+          test -d server
+          test -d server/api
+          test -d server/utils
+          test -d public
+          test -d fonts
+          test -d "${{ env.FNOS_PKG_DIR }}"
+          test -f "${{ env.FNOS_PKG_DIR }}/manifest"
+          test -f "${{ env.FNOS_PKG_DIR }}/cmd/main"
+          test -d "${{ env.FNOS_PKG_DIR }}/cmd"
+          test -d "${{ env.FNOS_PKG_DIR }}/wizard"
+          test -d "${{ env.FNOS_PKG_DIR }}/config"
+          test -d "${{ env.FNOS_PKG_DIR }}/app/ui"
+          if [ -d MediaHub ]; then
+            echo "错误：仍存在旧目录 MediaHub/，请使用 deploy/fnos/"
+            exit 1
+          fi
+          if [ -f Dockerfile ] || [ -f docker-compose.yml ]; then
+            echo "错误：仓库中不应包含 Docker 部署文件"
+            exit 1
+          fi
+          if ls fnpack-* >/dev/null 2>&1; then
+            echo "错误：仓库中不应提交 fnpack 二进制，应由 CI 临时下载"
+            exit 1
+          fi
+          echo "目录结构校验通过"
+
       - name: 安装 Node.js 24
         uses: actions/setup-node@v4
         with:
           node-version: '24'
 
       - name: 安装依赖
-        run: npm install
+        run: npm ci
 
       - name: 构建项目
         run: npm run build
 
+      - name: 校验 Nuxt 构建产物
+        run: |
+          set -euo pipefail
+          test -d .output/server
+          test -f .output/server/index.mjs
+          test -d .output/public
+          echo "构建产物校验通过"
+          du -sh .output/server .output/public || true
+
       - name: 准备打包目录
         run: |
-          rm -rf deploy/fnos/mediahub/app/www
-          rm -rf deploy/fnos/mediahub/app/runtime
-          mkdir -p deploy/fnos/mediahub/app/www/server
-          mkdir -p deploy/fnos/mediahub/app/www/public
-          mkdir -p deploy/fnos/mediahub/app/runtime/bin
+          set -euo pipefail
+          PKG="${{ env.FNOS_PKG_DIR }}"
+          rm -rf "${PKG}/app/www"
+          rm -rf "${PKG}/app/runtime"
+          mkdir -p "${PKG}/app/www/server"
+          mkdir -p "${PKG}/app/www/public"
+          mkdir -p "${PKG}/app/runtime/bin"
 
-      - name: 下载内置 Node.js 运行时
+      - name: 临时下载内置 Node.js 运行时
         run: |
-          NODE_VERSION="24.15.0"
+          set -euo pipefail
+          PKG="${{ env.FNOS_PKG_DIR }}"
+          NODE_VERSION="${{ env.NODE_RUNTIME_VERSION }}"
           NODE_ARCH="${{ matrix.nodeArch }}"
           NODE_TAR="node-v${NODE_VERSION}-linux-${NODE_ARCH}.tar.xz"
           NODE_URL="https://nodejs.org/dist/v${NODE_VERSION}/${NODE_TAR}"
+          TMP_DIR="$(mktemp -d)"
 
           echo "下载 Node.js 运行时: ${NODE_URL}"
-          curl -fSL -o /tmp/node-runtime.tar.xz "${NODE_URL}"
-
-          tar -xJf /tmp/node-runtime.tar.xz -C /tmp "node-v${NODE_VERSION}-linux-${NODE_ARCH}/bin/node"
-          cp "/tmp/node-v${NODE_VERSION}-linux-${NODE_ARCH}/bin/node" deploy/fnos/mediahub/app/runtime/bin/node
-          chmod +x deploy/fnos/mediahub/app/runtime/bin/node
-
-          ls -lh deploy/fnos/mediahub/app/runtime/bin/node
-          rm -rf /tmp/node-runtime.tar.xz "/tmp/node-v${NODE_VERSION}-linux-${NODE_ARCH}"
+          curl -fSL -o "${TMP_DIR}/node-runtime.tar.xz" "${NODE_URL}"
+          tar -xJf "${TMP_DIR}/node-runtime.tar.xz" -C "${TMP_DIR}" "node-v${NODE_VERSION}-linux-${NODE_ARCH}/bin/node"
+          cp "${TMP_DIR}/node-v${NODE_VERSION}-linux-${NODE_ARCH}/bin/node" "${PKG}/app/runtime/bin/node"
+          chmod +x "${PKG}/app/runtime/bin/node"
+          ls -lh "${PKG}/app/runtime/bin/node"
+          rm -rf "${TMP_DIR}"
 
       - name: 复制构建产物（解引用符号链接，避免飞牛设置目录权限失败）
         run: |
-          # 飞牛安装器在处理 Linux npm 生成的 node_modules 符号链接 / Junction 时
-          # 会触发「设置目录权限失败」。使用 rsync -L 解引用为真实文件后再打包。
-          rsync -aL --delete .output/server/ deploy/fnos/mediahub/app/www/server/
-          rsync -aL --delete .output/public/ deploy/fnos/mediahub/app/www/public/
+          set -euo pipefail
+          PKG="${{ env.FNOS_PKG_DIR }}"
 
-          # 清理 npm bin 链接目录（即使解引用后也可能残留）
-          find deploy/fnos/mediahub/app/www/server -type d -name '.bin' -prune -exec rm -rf {} + 2>/dev/null || true
+          # 飞牛安装器处理符号链接时会触发「设置目录权限失败」，rsync -L 解引用
+          rsync -aL --delete .output/server/ "${PKG}/app/www/server/"
+          rsync -aL --delete .output/public/ "${PKG}/app/www/public/"
 
-          # 再次确保不存在符号链接
-          if find deploy/fnos/mediahub/app/www/server -type l | grep -q .; then
+          find "${PKG}/app/www/server" -type d -name '.bin' -prune -exec rm -rf {} + 2>/dev/null || true
+
+          if find "${PKG}/app/www/server" -type l | grep -q .; then
             echo "检测到残留符号链接，尝试替换为真实文件..."
-            find deploy/fnos/mediahub/app/www/server -type l | while read -r link; do
+            find "${PKG}/app/www/server" -type l | while read -r link; do
               target="$(readlink -f "$link" || true)"
               if [ -n "$target" ] && [ -e "$target" ]; then
                 rm -f "$link"
@@ -158,64 +210,85 @@ jobs:
             done
           fi
 
-          remaining="$(find deploy/fnos/mediahub/app/www/server -type l | wc -l)"
+          remaining="$(find "${PKG}/app/www/server" -type l | wc -l)"
           echo "server 目录剩余符号链接数量: ${remaining}"
           if [ "${remaining}" -gt 0 ]; then
             echo "仍有符号链接残留，列出："
-            find deploy/fnos/mediahub/app/www/server -type l
+            find "${PKG}/app/www/server" -type l
             exit 1
           fi
 
+          test -f "${PKG}/app/www/server/index.mjs"
+          test -x "${PKG}/app/runtime/bin/node"
           echo "打包内容体积："
-          du -sh deploy/fnos/mediahub/app/www/server deploy/fnos/mediahub/app/www/public deploy/fnos/mediahub/app/runtime || true
+          du -sh "${PKG}/app/www/server" "${PKG}/app/www/public" "${PKG}/app/runtime" || true
 
       - name: 同步 manifest 版本与架构
         run: |
-          sed -i "s/^version=.*/version=${{ needs.prepare.outputs.version }}/" deploy/fnos/mediahub/manifest
-          if grep -q "^platform=" deploy/fnos/mediahub/manifest; then
-            sed -i "s/^platform=.*/platform=${{ matrix.platform }}/" deploy/fnos/mediahub/manifest
-          elif grep -q "^arch=" deploy/fnos/mediahub/manifest; then
+          set -euo pipefail
+          PKG="${{ env.FNOS_PKG_DIR }}"
+          sed -i "s/^version=.*/version=${{ needs.prepare.outputs.version }}/" "${PKG}/manifest"
+          if grep -q "^platform=" "${PKG}/manifest"; then
+            sed -i "s/^platform=.*/platform=${{ matrix.platform }}/" "${PKG}/manifest"
+          elif grep -q "^arch=" "${PKG}/manifest"; then
             if [ "${{ matrix.platform }}" = "x86" ]; then
-              sed -i "s/^arch=.*/arch=x86_64/" deploy/fnos/mediahub/manifest
+              sed -i "s/^arch=.*/arch=x86_64/" "${PKG}/manifest"
             else
-              sed -i "s/^arch=.*/arch=aarch64/" deploy/fnos/mediahub/manifest
+              sed -i "s/^arch=.*/arch=aarch64/" "${PKG}/manifest"
             fi
           else
-            echo "arch=${{ matrix.arch }}" >> deploy/fnos/mediahub/manifest
+            echo "arch=${{ matrix.arch }}" >> "${PKG}/manifest"
           fi
 
       - name: 确保文本文件使用 LF 行尾
         run: |
-          sed -i 's/\r$//' deploy/fnos/mediahub/cmd/*
-          sed -i 's/\r$//' deploy/fnos/mediahub/wizard/*
-          sed -i 's/\r$//' deploy/fnos/mediahub/manifest
-          sed -i 's/\r$//' deploy/fnos/mediahub/config/* || true
-          sed -i 's/\r$//' deploy/fnos/mediahub/app/ui/config || true
+          set -euo pipefail
+          PKG="${{ env.FNOS_PKG_DIR }}"
+          sed -i 's/$//' "${PKG}/cmd/"*
+          sed -i 's/$//' "${PKG}/wizard/"*
+          sed -i 's/$//' "${PKG}/manifest"
+          sed -i 's/$//' "${PKG}/config/"* || true
+          sed -i 's/$//' "${PKG}/app/ui/config" || true
+          chmod +x "${PKG}/cmd/"*
 
-      - name: 下载 fnpack 并构建 fpk
+      - name: 临时下载 fnpack 并构建 fpk
         run: |
-          curl -fsSL -o /tmp/fnpack "https://static2.fnnas.com/fnpack/${{ matrix.fnpack }}"
-          chmod +x /tmp/fnpack
-          chmod +x deploy/fnos/mediahub/cmd/*
-          cd deploy/fnos
-          /tmp/fnpack build -d mediahub
+          set -euo pipefail
+          PKG_PARENT="${{ env.FNOS_PKG_PARENT }}"
+          FNPACK_NAME="${{ matrix.fnpack }}"
+          FNPACK_URL="${{ env.FNPACK_BASE_URL }}/${FNPACK_NAME}"
+          TMP_FNPACK="$(mktemp)"
+
+          echo "下载 fnpack: ${FNPACK_URL}"
+          curl -fsSL -o "${TMP_FNPACK}" "${FNPACK_URL}"
+          chmod +x "${TMP_FNPACK}"
+
+          cd "${PKG_PARENT}"
+          "${TMP_FNPACK}" build -d mediahub
+          rm -f "${TMP_FNPACK}"
 
       - name: 重命名 fpk 包
         run: |
-          FPK_FILE=$(find deploy/fnos -maxdepth 3 -type f -name '*.fpk' | head -n 1)
+          set -euo pipefail
+          PKG_PARENT="${{ env.FNOS_PKG_PARENT }}"
+          VERSION="${{ needs.prepare.outputs.version }}"
+          ARCH="${{ matrix.arch }}"
+          FPK_FILE=$(find "${PKG_PARENT}" -maxdepth 3 -type f -name '*.fpk' | head -n 1)
           if [ -z "$FPK_FILE" ]; then
-            echo "未找到 fnpack 生成的 fpk 文件，当前 deploy/fnos 目录内容："
-            find deploy/fnos -maxdepth 3 -print
+            echo "未找到 fnpack 生成的 fpk 文件，当前 ${PKG_PARENT} 目录内容："
+            find "${PKG_PARENT}" -maxdepth 3 -print
             exit 1
           fi
           echo "找到 fpk 包: $FPK_FILE"
-          mv "$FPK_FILE" "deploy/fnos/mediahub-${{ needs.prepare.outputs.version }}-${{ matrix.arch }}.fpk"
+          OUT="${PKG_PARENT}/mediahub-${VERSION}-${ARCH}.fpk"
+          mv "$FPK_FILE" "$OUT"
+          ls -lh "$OUT"
 
       - name: 上传构建产物
         uses: actions/upload-artifact@v4
         with:
           name: mediahub-${{ matrix.arch }}
-          path: deploy/fnos/mediahub-${{ needs.prepare.outputs.version }}-${{ matrix.arch }}.fpk
+          path: ${{ env.FNOS_PKG_PARENT }}/mediahub-${{ needs.prepare.outputs.version }}-${{ matrix.arch }}.fpk
 
   release:
     needs: [prepare, package]
@@ -267,7 +340,6 @@ jobs:
 
           echo "准备文件..."
           mkdir -p fndepot_files
-
           cd artifacts
 
           for dir in */; do
