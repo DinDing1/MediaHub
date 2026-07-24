@@ -145,6 +145,9 @@ jobs:
       - name: 安装依赖
         run: npm ci
 
+      - name: 代码质检（typecheck，覆盖 app/ + server/）
+        run: npm run typecheck
+
       - name: 构建项目
         run: npm run build
 
@@ -244,11 +247,13 @@ jobs:
         run: |
           set -euo pipefail
           PKG="${{ env.FNOS_PKG_DIR }}"
-          sed -i 's/$//' "${PKG}/cmd/"*
-          sed -i 's/$//' "${PKG}/wizard/"*
-          sed -i 's/$//' "${PKG}/manifest"
-          sed -i 's/$//' "${PKG}/config/"* || true
-          sed -i 's/$//' "${PKG}/app/ui/config" || true
+          # 与 OneFive 一致：去掉 CR，避免飞牛脚本/配置异常
+          # 使用 $'..' 保证 \r 不会被 YAML 拆行
+          for f in "${PKG}/cmd/"* "${PKG}/wizard/"* "${PKG}/manifest" "${PKG}/config/"* "${PKG}/app/ui/config"; do
+            if [ -f "$f" ]; then
+              sed -i $'s/\r$//' "$f"
+            fi
+          done
           chmod +x "${PKG}/cmd/"*
 
       - name: 临时下载 fnpack 并构建 fpk

@@ -57,6 +57,20 @@ npm run preview  # 预览构建产物
 
 ## 打包说明
 
-CI 由 `config/version.json` 版本号变更或手动 workflow 触发，产物为飞牛 `.fpk`。
+CI（`.github/workflows/package.yml`）由 `config/version.json` 版本号变更或手动 workflow 触发，产物为飞牛 `.fpk`。
 
-打包目录：`deploy/fnos/mediahub`。
+- 打包源目录：`deploy/fnos/mediahub`（`FNOS_PKG_DIR`）
+- 前端源码：`app/`（`nuxt.config.ts` 中 `srcDir: 'app'`）
+- 后端源码：`server/`（`serverDir: 'server'`）
+- 代码质检：`npm run typecheck`（`nuxt typecheck`，覆盖 `app/` + `server/`）
+- Node 运行时与 fnpack：CI **临时下载**，不提交仓库
+  - Node：`https://nodejs.org/dist/...` → `deploy/fnos/mediahub/app/runtime/bin/node`
+  - fnpack：`https://static2.fnnas.com/fnpack/fnpack-1.2.1-linux-{amd64,arm64}`
+- 构建产物复制使用 `rsync -aL`（解引用符号链接，避免飞牛「设置目录权限失败」）
+
+本地质检：
+
+```bash
+npm run typecheck
+npm run build
+```
