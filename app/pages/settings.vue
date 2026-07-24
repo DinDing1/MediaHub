@@ -934,6 +934,7 @@
     <!-- 目录选择器 -->
     <DirectoryPicker
       v-model:show="showDirPicker"
+      :cookie="pan115Form.cookie"
       v-model="currentDirPickerValue"
     />
   </div>
