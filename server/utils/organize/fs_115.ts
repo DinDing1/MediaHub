@@ -13,9 +13,6 @@ import { getSetting } from '../db'
 import { tryRefreshToken } from '../pan115/open115'
 import type { FileItem } from './types'
 
-const WEBAPI_BASE = 'https://webapi.115.com'
-const PROAPI_BASE = 'https://proapi.115.com'
-
 interface FsOperationResult {
   success: boolean
   error?: string
@@ -42,12 +39,125 @@ interface MkdirResult {
   error?: string
 }
 
-function getDefaultHeaders(cookie: string): Record<string, string> {
-  return {
-    'User-Agent': 'Mozilla/5.0 115disk/99.99.99.99 115Browser/99.99.99.99 115wangpan_android/99.99.99.99',
+
+
+const WEBAPI_ORIGINS = [
+  'https://webapi.115.com',
+  'https://web.api.115.com',
+  'https://115cdn.com/webapi',
+  'https://115vod.com/webapi',
+]
+
+const APS_FILES_URL = 'https://aps.115.com/natsort/files.php'
+
+const WEBAPI_BASE = 'https://webapi.115.com'
+const PROAPI_BASE = 'https://proapi.115.com'
+
+const BROWSER_UA =
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+
+function getDefaultHeaders(cookie: string, withFormContentType = false): Record<string, string> {
+  const headers: Record<string, string> = {
+    'User-Agent': BROWSER_UA,
     'Cookie': cookie,
     'Referer': 'https://115.com/',
-    'Content-Type': 'application/x-www-form-urlencoded',
+    'Origin': 'https://115.com',
+    'Accept': 'application/json, text/plain, */*',
+  }
+  if (withFormContentType) {
+    headers['Content-Type'] = 'application/x-www-form-urlencoded'
+  }
+  return headers
+}
+
+/**
+ * 判断 115 列表项是否为目录。
+ * 参考 p115client：文件有 fid，目录通常只有 cid。
+ * 注意：pc 是 pickcode，不能用来判断是否目录。
+ */
+function isDirectoryItem(item: Record<string, any>): boolean {
+  if (item == null) return false
+  if (item.is_dir === true || item.is_dir === 1 || item.is_dir === '1') return true
+  // 115 文件项一定有 fid；目录通常只有 cid（pc 是 pickcode，不能用来判断）
+  const fid = item.fid
+  if (fid !== undefined && fid !== null && String(fid) !== '') return false
+  return true
+}
+
+function mapFileItem(item: Record<string, any>, parentCid: string): FileItem {
+  const isFolder = isDirectoryItem(item)
+  const fileId = isFolder
+    ? String(item.cid ?? item.id ?? '')
+    : String(item.fid ?? item.id ?? '')
+
+  return {
+    type: isFolder ? 'folder' : 'file',
+    is_dir: isFolder,
+    name: item.n || item.name || '',
+    fileId,
+    cid: String(item.cid ?? item.fid ?? item.id ?? ''),
+    parentId: String(item.pid ?? item.parent_id ?? parentCid),
+    size: Number(item.s ?? item.size ?? 0) || 0,
+    updatedAt: item.t || item.date || null,
+    pickcode: String(item.pc ?? item.pick_code ?? item.pickcode ?? '')
+  }
+}
+
+function buildListParams(cid: string): URLSearchParams {
+  // 对齐 p115client.tool.fs_files 默认参数
+  return new URLSearchParams({
+    aid: '1',
+    cid: String(cid || '0'),
+    offset: '0',
+    limit: '1000',
+    show_dir: '1',
+    cur: '1',
+    fc_mix: '1',
+    count_folders: '1',
+    record_open_time: '1',
+    asc: '1',
+    o: 'user_ptime',
+    custom_order: '1'
+  })
+}
+
+async function fetchListOnce(
+  url: string,
+  cookie: string,
+  cid: string
+): Promise<{ ok: boolean; status: number; body?: any; error?: string }> {
+  try {
+    const response = await fetch(url, {
+      method: 'GET',
+      headers: getDefaultHeaders(cookie, false),
+      redirect: 'follow'
+    })
+
+    const status = response.status
+    const text = await response.text()
+    let body: any = null
+    try {
+      body = text ? JSON.parse(text) : null
+    } catch {
+      return {
+        ok: false,
+        status,
+        error: `非 JSON 响应 (${status}): ${text.slice(0, 120)}`
+      }
+    }
+
+    if (!response.ok) {
+      return {
+        ok: false,
+        status,
+        body,
+        error: `HTTP ${status}${body?.error ? `: ${body.error}` : ''}`
+      }
+    }
+
+    return { ok: true, status, body }
+  } catch (e: any) {
+    return { ok: false, status: 0, error: e?.message || String(e) }
   }
 }
 
@@ -59,49 +169,44 @@ async function executeListFiles(
     return { success: false, error: 'Cookie为空' }
   }
 
-  const params = new URLSearchParams({
-    cid: cid,
-    limit: '1000',
-    offset: '0',
-    show_dir: '1',
-    asc: '1',
-    o: 'file_name'
-  })
+  const params = buildListParams(cid)
+  const candidates: string[] = [
+    ...WEBAPI_ORIGINS.map((origin) => `${origin}/files?${params.toString()}`),
+    // p115client 提示 webapi 易被风控，aps natsort 通常更快更稳
+    `${APS_FILES_URL}?${params.toString()}`
+  ]
 
-  const response = await fetch(`${WEBAPI_BASE}/files?${params.toString()}`, {
-    headers: getDefaultHeaders(cookie)
-  })
+  const errors: string[] = []
 
-  if (!response.ok) {
-    return { success: false, error: `请求失败: ${response.status}` }
-  }
-
-  const result = await response.json()
-
-  if (result.state !== true || !result.data) {
-    return { success: false, error: '获取文件列表失败' }
-  }
-
-  const files: FileItem[] = result.data.map((item: any) => {
-    const isFolder = item.pc === 1 || item.is_dir || !('fid' in item)
-    const fileId = isFolder 
-      ? String(item.cid || item.id) 
-      : String(item.fid || item.id)
-    
-    return {
-      type: isFolder ? 'folder' : 'file',
-      is_dir: isFolder,
-      name: item.n || item.name,
-      fileId: fileId,
-      cid: String(item.cid || item.fid || item.id),
-      parentId: String(item.pid || item.parent_id || cid),
-      size: item.s || item.size || 0,
-      updatedAt: item.t || item.date || null,
-      pickcode: item.pc || item.pickcode || ''
+  for (const url of candidates) {
+    const result = await fetchListOnce(url, cookie, cid)
+    if (!result.ok || !result.body) {
+      errors.push(`${url.split('?')[0]} => ${result.error || result.status}`)
+      continue
     }
-  })
 
-  return { success: true, files }
+    const body = result.body
+    // 115 成功态：state === true；部分接口 errno === 0
+    if (body.state === true && Array.isArray(body.data)) {
+      const files = body.data.map((item: any) => mapFileItem(item, cid))
+      return { success: true, files }
+    }
+
+    const errno = body.errno ?? body.errNo ?? body.code
+    const errMsg = body.error || body.message || body.msg || '获取文件列表失败'
+    // 登录失效
+    if (errno === 99 || /重新登录|请先登录|登录/.test(String(errMsg))) {
+      return { success: false, error: `登录失效，请重新扫码: ${errMsg}` }
+    }
+
+    errors.push(`${url.split('?')[0]} => ${errMsg} (errno=${errno ?? '-'})`)
+  }
+
+  log.error('115云盘', `获取文件列表失败，已尝试 ${candidates.length} 个接口: ${errors.join(' | ')}`)
+  return {
+    success: false,
+    error: errors[errors.length - 1] || '获取文件列表失败'
+  }
 }
 
 export async function listFiles(
@@ -156,7 +261,7 @@ async function executeMkdir(
 
   const response = await fetch(`${WEBAPI_BASE}/files/add`, {
     method: 'POST',
-    headers: getDefaultHeaders(cookie),
+    headers: getDefaultHeaders(cookie, true),
     body: params.toString()
   })
 
@@ -226,7 +331,7 @@ async function executeMoveFile(
 
   const response = await fetch(`${WEBAPI_BASE}/files/move`, {
     method: 'POST',
-    headers: getDefaultHeaders(cookie),
+    headers: getDefaultHeaders(cookie, true),
     body: params.toString()
   })
 
@@ -289,7 +394,7 @@ async function executeCopyFile(
 
   const response = await fetch(`${WEBAPI_BASE}/files/copy`, {
     method: 'POST',
-    headers: getDefaultHeaders(cookie),
+    headers: getDefaultHeaders(cookie, true),
     body: params.toString()
   })
 
@@ -364,7 +469,7 @@ async function executeRenameFile(
 
   const response = await fetch(`${WEBAPI_BASE}/files/batch_rename`, {
     method: 'POST',
-    headers: getDefaultHeaders(cookie),
+    headers: getDefaultHeaders(cookie, true),
     body: params.toString()
   })
 
@@ -637,7 +742,7 @@ async function executeBatchRename(
 
   const response = await fetch(`${WEBAPI_BASE}/files/batch_rename`, {
     method: 'POST',
-    headers: getDefaultHeaders(cookie),
+    headers: getDefaultHeaders(cookie, true),
     body: params.toString()
   })
 
@@ -827,7 +932,7 @@ async function executeDeleteItems(
 
   const response = await fetch(`${WEBAPI_BASE}/rb/delete`, {
     method: 'POST',
-    headers: getDefaultHeaders(cookie),
+    headers: getDefaultHeaders(cookie, true),
     body: params.toString()
   })
 
@@ -879,7 +984,7 @@ async function executeDeleteFolder(
 
   const response = await fetch(`${WEBAPI_BASE}/rb/delete`, {
     method: 'POST',
-    headers: getDefaultHeaders(cookie),
+    headers: getDefaultHeaders(cookie, true),
     body: params.toString()
   })
 

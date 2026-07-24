@@ -149,18 +149,34 @@ async function loadFiles() {
   error.value = ''
 
   try {
-    const response = await $fetch(`/api/pan115/fs_files_115?cid=${currentCid.value}`) as any
+    // 优先 GET；部分网关对 GET 异常时回退 POST
+    let response: any
+    try {
+      response = await $fetch(`/api/pan115/fs_files_115?cid=${encodeURIComponent(currentCid.value)}`)
+    } catch (getErr: any) {
+      const status = getErr?.statusCode || getErr?.status || getErr?.response?.status
+      if (status === 405 || status === 404) {
+        response = await $fetch('/api/pan115/fs_files_115', {
+          method: 'POST',
+          body: { cid: currentCid.value }
+        })
+      } else {
+        throw getErr
+      }
+    }
 
-    if (response.success && response.files) {
+    if (response?.success && Array.isArray(response.files)) {
       directories.value = response.files.filter((f: Directory) => f.is_dir)
       if (response.path) {
         currentPath.value = response.path.slice(1)
       }
     } else {
-      error.value = response.error || '加载失败'
+      error.value = response?.error || '加载失败'
     }
   } catch (e: any) {
-    error.value = e.message || '加载失败'
+    const status = e?.statusCode || e?.status || e?.response?.status
+    const msg = e?.data?.error || e?.data?.message || e?.message || '加载失败'
+    error.value = status ? `${msg} (${status})` : msg
   } finally {
     loading.value = false
   }
