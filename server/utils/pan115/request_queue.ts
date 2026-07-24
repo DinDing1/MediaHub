@@ -93,6 +93,3 @@ export function getQueueLength(): number {
   return requestQueue.getQueueLength()
 }
 
-export function clearQueue(): void {
-  requestQueue.clear()
-}

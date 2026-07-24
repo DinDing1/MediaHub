@@ -268,24 +268,6 @@ export function normalizePath(path: string): string {
 }
 
 /**
- * 获取默认电影模板
- * 
- * @returns 默认电影命名模板字符串
- */
-export function getDefaultMovieTemplate(): string {
-  return DEFAULT_MOVIE_TEMPLATE
-}
-
-/**
- * 获取默认电视剧模板
- * 
- * @returns 默认电视剧命名模板字符串
- */
-export function getDefaultTvTemplate(): string {
-  return DEFAULT_TV_TEMPLATE
-}
-
-/**
  * 分割路径
  * 将路径字符串分割为路径部分数组
  * 

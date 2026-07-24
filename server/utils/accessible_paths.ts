@@ -2,8 +2,11 @@
  * 飞牛授权目录工具
  *
  * 飞牛正式环境：
- *   用户在应用设置里授权存储目录后，系统会注入环境变量 TRIM_DATA_ACCESSIBLE_PATHS。
- *   本模块直接读取该环境变量，无需额外落盘文件。
+ *   用户在「应用设置」中授权/变更存储目录后，系统会调用 config_callback，
+ *   将最新的 TRIM_DATA_ACCESSIBLE_PATHS 落盘到 ${TRIM_PKGVAR}/accessible_paths.env。
+ *   本模块每次读取都重新打开该文件，因此无需重启应用即可生效。
+ *
+ *   兜底：进程启动时注入的环境变量 TRIM_DATA_ACCESSIBLE_PATHS（仅作无文件时的快照）。
  *
  * 本地开发（可选）：
  *   可设置 TRIM_DATA_ACCESSIBLE_PATHS，或在 data/accessible_paths.env 中写路径模拟。
@@ -56,36 +59,64 @@ function normalizePath(targetPath: string): string {
   return resolve(targetPath).replace(/[\\/]+$/, '')
 }
 
-/** 本地开发用的可选模拟文件（飞牛正式环境不会用到） */
+/**
+ * 飞牛正式环境落盘文件（config_callback / 启动脚本写入）
+ * 与 OneFive 一致：放在 TRIM_PKGVAR 根下，便于权限与回调读写
+ */
+export function getAccessiblePathsFile(): string | null {
+  const pkgVar = (process.env.TRIM_PKGVAR || '').trim()
+  if (pkgVar) {
+    return join(pkgVar, 'accessible_paths.env')
+  }
+  return null
+}
+
+/** 本地开发用的可选模拟文件 */
 function getLocalDevPathsFile(): string {
   return join(process.cwd(), 'data', 'accessible_paths.env')
 }
 
+function readPathsFromFile(filePath: string): string[] | null {
+  if (!existsSync(filePath)) return null
+  try {
+    const raw = readFileSync(filePath, 'utf-8')
+    // 文件存在即视为最新授权状态（含清空授权后的空文件）
+    return splitAccessiblePaths(raw.trim())
+  } catch {
+    return null
+  }
+}
+
 /**
- * 获取飞牛授权可访问路径列表
- * 优先：TRIM_DATA_ACCESSIBLE_PATHS（飞牛正式来源）
- * 兜底：仅本地开发时的 data/accessible_paths.env
+ * 获取飞牛授权可访问路径列表（每次调用重新读取，支持热更新）
+ * 优先级：
+ * 1. ${TRIM_PKGVAR}/accessible_paths.env（config_callback 写入的最新值）
+ * 2. 环境变量 TRIM_DATA_ACCESSIBLE_PATHS（进程启动快照，兜底）
+ * 3. 本地开发 data/accessible_paths.env
  */
 export function getAccessiblePaths(): string[] {
+  const pkgFile = getAccessiblePathsFile()
+  if (pkgFile) {
+    const fromFile = readPathsFromFile(pkgFile)
+    if (fromFile !== null) {
+      return fromFile
+    }
+  }
+
   const envRaw = (process.env.TRIM_DATA_ACCESSIBLE_PATHS || '').trim()
   if (envRaw) {
     return splitAccessiblePaths(envRaw)
   }
 
-  // 飞牛环境：没有授权就返回空，让前端提示用户去应用设置里授权
-  // 不在飞牛时才读本地模拟文件
+  // 飞牛环境且尚无落盘文件、也无环境变量：返回空
   if (process.env.TRIM_PKGVAR) {
     return []
   }
 
   const localFile = getLocalDevPathsFile()
-  if (existsSync(localFile)) {
-    try {
-      const raw = readFileSync(localFile, 'utf-8').trim()
-      if (raw) return splitAccessiblePaths(raw)
-    } catch {
-      // ignore
-    }
+  const fromLocal = readPathsFromFile(localFile)
+  if (fromLocal !== null) {
+    return fromLocal
   }
 
   return []
@@ -142,7 +173,6 @@ export function listAccessibleChildren(path: string): { dirs: string[]; error?: 
       const full = join(path, entry.name)
       try {
         if (!statSync(full).isDirectory()) continue
-        JSON.stringify(full)
         dirs.push(full)
       } catch {
         continue

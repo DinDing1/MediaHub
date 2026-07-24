@@ -40,14 +40,6 @@ export function getDeviceTypes(): { value: string; label: string }[] {
   }))
 }
 
-/**
- * 设置设备类型
- */
-export function setDeviceType(deviceType: string): void {
-  if (DEVICE_TYPES[deviceType]) {
-    currentDeviceType = deviceType
-  }
-}
 
 /**
  * 检查是否有有效的二维码token

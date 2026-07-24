@@ -1,7 +1,23 @@
 #!/bin/bash
 
 ### MediaHub config_callback
-### 用户在应用设置中保存配置后调用。
-### 授权目录由系统通过 TRIM_DATA_ACCESSIBLE_PATHS 注入应用进程，无需落盘。
+### 用户在飞牛「应用设置」中保存配置（含授权存储目录）后调用。
+### 将最新 TRIM_DATA_ACCESSIBLE_PATHS 落盘，供运行中的 Node 进程热读取，无需重启。
 
+LOG_FILE="${TRIM_PKGVAR}/logs/app.log"
+ACCESSIBLE_FILE="${TRIM_PKGVAR}/accessible_paths.env"
+
+mkdir -p "${TRIM_PKGVAR}" 2>/dev/null || true
+mkdir -p "${TRIM_PKGVAR}/logs" 2>/dev/null || true
+
+# 覆盖写入（可为空：表示用户清空了全部授权目录）
+printf "%s" "${TRIM_DATA_ACCESSIBLE_PATHS}" > "${ACCESSIBLE_FILE}" 2>/dev/null || true
+chmod 600 "${ACCESSIBLE_FILE}" 2>/dev/null || true
+
+# 尽量归属到应用运行用户，避免 Node 读不到
+if [ -n "${TRIM_USERNAME}" ]; then
+  chown "${TRIM_USERNAME}:${TRIM_USERNAME}" "${ACCESSIBLE_FILE}" 2>/dev/null || true
+fi
+
+echo "$(date '+%Y-%m-%d %H:%M:%S') - config_callback: 已保存授权目录到 accessible_paths.env" >> "${LOG_FILE}" 2>/dev/null || true
 exit 0

@@ -84,36 +84,6 @@ export async function getQrcodeToken(appId: string): Promise<QrcodeTokenInfo> {
   }
 }
 
-/**
- * 检查二维码扫码状态
- * @param tokenInfo - 二维码Token信息（包含uid, time, sign）
- * @returns 扫码状态
- */
-export async function checkQrcodeStatus(tokenInfo: QrcodeTokenInfo): Promise<{ status: number; message: string }> {
-  const params = new URLSearchParams({
-    uid: tokenInfo.uid,
-    time: String(tokenInfo.time),
-    sign: tokenInfo.sign
-  })
-
-  const response = await fetch(`${QRCODEAPI_BASE}/get/status/?${params.toString()}`, {
-    method: 'GET',
-    headers: {
-      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-    }
-  })
-
-  if (!response.ok) {
-    throw new Error(`检查扫码状态失败: ${response.status}`)
-  }
-
-  const result = await response.json()
-  
-  return {
-    status: result.data?.status ?? -1,
-    message: result.data?.message || ''
-  }
-}
 
 /**
  * 获取访问令牌（开放平台）
@@ -404,17 +374,3 @@ export async function tryRefreshToken(): Promise<boolean> {
   }
 }
 
-/**
- * 获取有效的access_token
- * 如果token无效或不存在，尝试刷新或返回null
- * @returns access_token或null
- */
-export async function getValidToken(): Promise<string | null> {
-  let openToken = getSetting('pan115_open_token')
-  
-  if (!openToken) {
-    return null
-  }
-  
-  return openToken
-}

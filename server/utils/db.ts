@@ -254,15 +254,6 @@ export function getAllSettings(): Record<string, string> {
   return settings
 }
 
-/**
- * 获取带元数据的所有配置
- * @returns 配置数组，包含key、value、label、description
- */
-export function getAllSettingsWithMeta(): Array<{ key: string; value: string; label?: string; description?: string }> {
-  const database = getDB()
-  const stmt = database.prepare('SELECT key, value, label, description FROM settings ORDER BY key')
-  return stmt.all() as Array<{ key: string; value: string; label?: string; description?: string }>
-}
 
 export interface OrganizeRecord {
   id: number
@@ -371,13 +362,6 @@ export function saveDirectLinkCache(
   stmt.run(pickcode, fileId, downloadUrl, expireTs, userAgent || null)
 }
 
-export function cleanExpiredDirectLinkCache(): number {
-  const database = getDB()
-  const now = Math.floor(Date.now() / 1000)
-  const stmt = database.prepare('DELETE FROM direct_link_115 WHERE expire_ts < ?')
-  const result = stmt.run(now)
-  return result.changes
-}
 
 /**
  * 追更持久化队列中的单条记录。

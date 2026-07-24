@@ -743,7 +743,7 @@
             <button
               type="button"
               class="btn btn-secondary"
-              @click="loadStrmAccessiblePaths"
+              @click="loadStrmAccessiblePaths(true)"
             >
               刷新授权目录
             </button>
@@ -895,7 +895,7 @@
 
               <div class="strm-path-list">
                 <div v-if="strmPickerLoading" class="strm-path-empty">加载中...</div>
-                <div v-else-if="strmPickerDirs.length === 0" class="strm-path-empty">此目录为空</div>
+                <div v-else-if="strmPickerDirs.length === 0" class="strm-path-empty">{{ strmPickerBreadcrumbs.length === 0 ? '暂无授权目录，请先在飞牛应用设置中授权后刷新' : '此目录为空' }}</div>
                 <template v-else>
                   <div
                     v-for="dir in strmPickerDirs"
@@ -2275,7 +2275,7 @@ function pathBasename(p: string): string {
   return p.split(/[\\/]/).filter(Boolean).pop() || p
 }
 
-async function loadStrmAccessiblePaths() {
+async function loadStrmAccessiblePaths(showFeedback = false) {
   try {
     const res = await $fetch('/api/strm/accessible-paths') as any
     if (res?.success && res.data) {
@@ -2283,9 +2283,23 @@ async function loadStrmAccessiblePaths() {
     } else {
       strmAccessiblePaths.value = []
     }
+    if (showFeedback) {
+      const n = strmAccessiblePaths.value.length
+      if (n > 0) {
+        message.value = `已刷新授权目录（${n} 个），无需重启应用`
+        messageType.value = 'success'
+      } else {
+        message.value = '未检测到授权目录，请先在飞牛「应用设置」中授权存储目录后再刷新'
+        messageType.value = 'error'
+      }
+    }
   } catch (e) {
     console.error('加载授权目录失败:', e)
     strmAccessiblePaths.value = []
+    if (showFeedback) {
+      message.value = '刷新授权目录失败'
+      messageType.value = 'error'
+    }
   }
 }
 
@@ -2296,7 +2310,7 @@ async function openStrmPathPicker() {
   strmPickerDirs.value = [...strmAccessiblePaths.value]
   showStrmPathPicker.value = true
   if (strmAccessiblePaths.value.length === 0) {
-    message.value = '未检测到飞牛授权目录，请先在飞牛应用设置中授权存储目录后重启应用'
+    message.value = '未检测到授权目录，请先在飞牛「应用设置」中授权存储目录，然后点击「刷新授权目录」'
     messageType.value = 'error'
   }
 }

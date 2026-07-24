@@ -679,50 +679,6 @@ export async function batchRenameFiles(
   }
 }
 
-async function executeGetFileInfo(
-  cookie: string,
-  fileId: string
-): Promise<FsOperationResult> {
-  if (!cookie || !cookie.trim()) {
-    return { success: false, error: 'Cookie为空' }
-  }
-
-  const params = new URLSearchParams({
-    file_id: fileId
-  })
-
-  const response = await fetch(`${WEBAPI_BASE}/files/getfileinfo?${params.toString()}`, {
-    headers: getDefaultHeaders(cookie)
-  })
-
-  if (!response.ok) {
-    return { success: false, error: `请求失败: ${response.status}` }
-  }
-
-  const result = await response.json()
-
-  if (result.state !== true && result.errno !== 0) {
-    return { success: false, error: '获取文件信息失败' }
-  }
-
-  return { success: true, data: result.data || result }
-}
-
-export async function getFileInfo(
-  cookie: string,
-  fileId: string
-): Promise<FsOperationResult> {
-  try {
-    return await enqueueRequest(
-      () => executeGetFileInfo(cookie, fileId),
-      `获取文件信息: ${fileId}`
-    )
-  } catch (e: any) {
-    log.error('115云盘', `获取文件信息异常: ${e.message}`)
-    return { success: false, error: e.message }
-  }
-}
-
 export async function findDirectory(
   cookie: string,
   parentId: string,

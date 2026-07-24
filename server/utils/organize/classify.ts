@@ -87,36 +87,6 @@ export const DEFAULT_STRATEGY: ClassificationStrategy = {
  * - 10767: 谈话
  * - 10768: 战争政治
  */
-const GENRE_MAP: Record<number, string> = {
-  28: '动作',
-  12: '冒险',
-  16: '动画',
-  35: '喜剧',
-  80: '犯罪',
-  99: '纪录片',
-  18: '剧情',
-  10751: '家庭',
-  14: '奇幻',
-  36: '历史',
-  27: '恐怖',
-  10402: '音乐',
-  9648: '悬疑',
-  10749: '爱情',
-  878: '科幻',
-  10770: '电视电影',
-  53: '惊悚',
-  10752: '战争',
-  37: '西部',
-  10759: '动作冒险',
-  10762: '儿童',
-  10763: '新闻',
-  10764: '真人秀',
-  10765: '科幻奇幻',
-  10766: '肥皂剧',
-  10767: '谈话',
-  10768: '战争政治',
-}
-
 /**
  * 解析类型ID字符串
  * 
@@ -231,74 +201,4 @@ export function classifyMedia(
   }
 
   return mediaType === 'movie' ? '电影/其他' : '剧集/其他'
-}
-
-/**
- * 根据类型ID获取类型名称
- * 
- * @param genreId - TMDB类型ID
- * @returns 类型中文名称，未知类型返回"未知"
- */
-export function getGenreName(genreId: number): string {
-  return GENRE_MAP[genreId] || '未知'
-}
-
-/**
- * 批量获取类型名称
- * 
- * @param genreIds - 类型ID数组
- * @returns 类型名称数组
- */
-export function getGenreNames(genreIds: number[]): string[] {
-  return genreIds.map(id => getGenreName(id))
-}
-
-/**
- * 获取默认分类策略
- * 
- * @returns 默认分类策略对象
- */
-export function getDefaultStrategy(): ClassificationStrategy {
-  return DEFAULT_STRATEGY
-}
-
-/**
- * 根据国家代码获取国家名称
- * 
- * @param code - ISO 3166-1国家代码
- * @returns 国家中文名称，未知国家返回原代码
- */
-export function getCountryName(code: string): string {
-  const countryMap: Record<string, string> = {
-    CN: '中国',
-    TW: '台湾',
-    HK: '香港',
-    JP: '日本',
-    KP: '朝鲜',
-    KR: '韩国',
-    TH: '泰国',
-    IN: '印度',
-    SG: '新加坡',
-    US: '美国',
-    FR: '法国',
-    GB: '英国',
-    UK: '英国',
-    DE: '德国',
-    ES: '西班牙',
-    IT: '意大利',
-    NL: '荷兰',
-    PT: '葡萄牙',
-    RU: '俄罗斯',
-  }
-  return countryMap[code.toUpperCase()] || code
-}
-
-/**
- * 批量获取国家名称
- * 
- * @param codes - 国家代码数组
- * @returns 用 " / " 连接的国家名称字符串
- */
-export function getCountriesName(codes: string[]): string {
-  return codes.map(c => getCountryName(c)).join(' / ')
 }
