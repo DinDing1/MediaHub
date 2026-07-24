@@ -12,11 +12,6 @@ on:
           - all
           - x86_64
           - aarch64
-      push_to_fndepot:
-        description: '推送到 FnDepot 仓库'
-        required: true
-        default: true
-        type: boolean
   push:
     branches:
       - main
@@ -34,64 +29,68 @@ permissions:
   contents: write
 
 jobs:
-  check-version:
+  prepare:
     runs-on: ubuntu-latest
     outputs:
       should_build: ${{ steps.check.outputs.should_build }}
       version: ${{ steps.check.outputs.version }}
-      push_to_fndepot: ${{ steps.check.outputs.push_to_fndepot }}
+      matrix: ${{ steps.matrix.outputs.matrix }}
     steps:
       - name: 检出代码
         uses: actions/checkout@v4
         with:
           fetch-depth: 2
 
-      - name: 检查版本是否变化
+      - name: 读取版本并判断是否构建
         id: check
         run: |
-          VERSION=$(node -e "process.stdout.write(JSON.parse(require('fs').readFileSync('config/version.json', 'utf8')).version)")
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          set -euo pipefail
+          VERSION=$(node -e "process.stdout.write(JSON.parse(require('fs').readFileSync('config/version.json','utf8')).version)")
+          PKG_VERSION=$(node -e "process.stdout.write(require('./package.json').version)")
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "应用版本: $VERSION"
+
+          if [ "$VERSION" != "$PKG_VERSION" ]; then
+            echo "版本不一致: config/version.json=$VERSION package.json=$PKG_VERSION"
+            exit 1
+          fi
 
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             echo "手动触发，执行构建"
-            echo "should_build=true" >> $GITHUB_OUTPUT
-            echo "push_to_fndepot=${{ github.event.inputs.push_to_fndepot }}" >> $GITHUB_OUTPUT
+            echo "should_build=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
-          PREVIOUS_VERSION=$(git show HEAD~1:config/version.json 2>/dev/null | node -e "let input=''; process.stdin.on('data', chunk => input += chunk); process.stdin.on('end', () => { try { process.stdout.write(JSON.parse(input).version || '') } catch { process.stdout.write('') } })")
-
+          PREVIOUS_VERSION=$(git show HEAD~1:config/version.json 2>/dev/null | node -e "let s='';process.stdin.on('data',d=>s+=d);process.stdin.on('end',()=>{try{process.stdout.write(JSON.parse(s).version||'')}catch{process.stdout.write('')}})" || true)
           if [ "$VERSION" != "$PREVIOUS_VERSION" ]; then
-            echo "版本号已更新，执行构建"
-            echo "should_build=true" >> $GITHUB_OUTPUT
-            echo "push_to_fndepot=true" >> $GITHUB_OUTPUT
+            echo "版本号已更新 ($PREVIOUS_VERSION -> $VERSION)，执行构建"
+            echo "should_build=true" >> "$GITHUB_OUTPUT"
           else
             echo "版本号未更新，跳过构建"
-            echo "should_build=false" >> $GITHUB_OUTPUT
-            echo "push_to_fndepot=false" >> $GITHUB_OUTPUT
+            echo "should_build=false" >> "$GITHUB_OUTPUT"
           fi
 
-  prepare:
-    needs: check-version
-    if: ${{ needs.check-version.outputs.should_build == 'true' }}
-    runs-on: ubuntu-latest
-    outputs:
-      matrix: ${{ steps.set-matrix.outputs.matrix }}
-      version: ${{ needs.check-version.outputs.version }}
-      push_to_fndepot: ${{ needs.check-version.outputs.push_to_fndepot }}
-    steps:
-      - id: set-matrix
+      - name: 设置构建矩阵
+        id: matrix
+        if: steps.check.outputs.should_build == 'true'
         run: |
-          if [ "${{ github.event.inputs.platform }}" = "x86_64" ]; then
-            echo 'matrix={"include":[{"arch":"x86_64","runner":"ubuntu-latest","fnpack":"fnpack-1.2.1-linux-amd64","platform":"x86","nodeArch":"x64"}]}' >> $GITHUB_OUTPUT
-          elif [ "${{ github.event.inputs.platform }}" = "aarch64" ]; then
-            echo 'matrix={"include":[{"arch":"aarch64","runner":"ubuntu-24.04-arm","fnpack":"fnpack-1.2.1-linux-arm64","platform":"arm","nodeArch":"arm64"}]}' >> $GITHUB_OUTPUT
+          set -euo pipefail
+          PLATFORM="${{ github.event.inputs.platform }}"
+          # push 触发时 inputs 为空，默认双架构
+          if [ -z "$PLATFORM" ] || [ "$PLATFORM" = "all" ]; then
+            echo 'matrix={"include":[{"arch":"x86_64","runner":"ubuntu-latest","fnpack":"fnpack-1.2.1-linux-amd64","platform":"x86","nodeArch":"x64"},{"arch":"aarch64","runner":"ubuntu-24.04-arm","fnpack":"fnpack-1.2.1-linux-arm64","platform":"arm","nodeArch":"arm64"}]}' >> "$GITHUB_OUTPUT"
+          elif [ "$PLATFORM" = "x86_64" ]; then
+            echo 'matrix={"include":[{"arch":"x86_64","runner":"ubuntu-latest","fnpack":"fnpack-1.2.1-linux-amd64","platform":"x86","nodeArch":"x64"}]}' >> "$GITHUB_OUTPUT"
+          elif [ "$PLATFORM" = "aarch64" ]; then
+            echo 'matrix={"include":[{"arch":"aarch64","runner":"ubuntu-24.04-arm","fnpack":"fnpack-1.2.1-linux-arm64","platform":"arm","nodeArch":"arm64"}]}' >> "$GITHUB_OUTPUT"
           else
-            echo 'matrix={"include":[{"arch":"x86_64","runner":"ubuntu-latest","fnpack":"fnpack-1.2.1-linux-amd64","platform":"x86","nodeArch":"x64"},{"arch":"aarch64","runner":"ubuntu-24.04-arm","fnpack":"fnpack-1.2.1-linux-arm64","platform":"arm","nodeArch":"arm64"}]}' >> $GITHUB_OUTPUT
+            echo "未知平台: $PLATFORM"
+            exit 1
           fi
 
   package:
     needs: prepare
+    if: needs.prepare.outputs.should_build == 'true'
     runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: false
@@ -101,34 +100,18 @@ jobs:
       - name: 检出代码
         uses: actions/checkout@v4
 
-      - name: 校验仓库目录结构
+      - name: 校验关键路径
         run: |
           set -euo pipefail
-          echo "校验前端/后端/飞牛打包源目录..."
           test -f nuxt.config.ts
           test -f package.json
           test -f config/version.json
-          # 应用版本唯一源：config/version.json，须与 package.json 保持一致
-          node -e "const v=require('./config/version.json').version; const p=require('./package.json').version; if(v!==p){console.error('版本不一致: config/version.json='+v+' package.json='+p); process.exit(1)}; console.log('应用版本: '+v)"
-          test -d app
-          test -f app/app.vue
-          test -f app/utils/time.ts
-          test -d server
-          test -d server/api
-          test -d server/utils
-          test -d public
-          test -d fonts
-          test -d "${{ env.FNOS_PKG_DIR }}"
+          test -d app && test -d server && test -d public && test -d fonts
           test -f "${{ env.FNOS_PKG_DIR }}/manifest"
           test -f "${{ env.FNOS_PKG_DIR }}/cmd/main"
           test -d "${{ env.FNOS_PKG_DIR }}/cmd"
           test -d "${{ env.FNOS_PKG_DIR }}/wizard"
-          test -d "${{ env.FNOS_PKG_DIR }}/config"
-          test -d "${{ env.FNOS_PKG_DIR }}/app/ui"
-          if [ -d MediaHub ]; then
-            echo "错误：仍存在旧目录 MediaHub/，请使用 deploy/fnos/"
-            exit 1
-          fi
+          # 仓库内不应提交 Docker / fnpack 二进制
           if [ -f Dockerfile ] || [ -f docker-compose.yml ]; then
             echo "错误：仓库中不应包含 Docker 部署文件"
             exit 1
@@ -137,7 +120,6 @@ jobs:
             echo "错误：仓库中不应提交 fnpack 二进制，应由 CI 临时下载"
             exit 1
           fi
-          echo "目录结构校验通过"
 
       - name: 安装 Node.js 24
         uses: actions/setup-node@v4
@@ -147,123 +129,78 @@ jobs:
       - name: 安装依赖
         run: npm ci
 
-      - name: 代码质检（typecheck，覆盖 app/ + server/）
+      - name: 代码质检
         run: npm run typecheck
 
       - name: 构建项目
         run: npm run build
 
-      - name: 校验 Nuxt 构建产物
+      - name: 校验构建产物
         run: |
           set -euo pipefail
-          test -d .output/server
           test -f .output/server/index.mjs
           test -d .output/public
-          echo "构建产物校验通过"
-          du -sh .output/server .output/public || true
 
-      - name: 准备打包目录
+      - name: 组装飞牛包内容
         run: |
           set -euo pipefail
           PKG="${{ env.FNOS_PKG_DIR }}"
-          rm -rf "${PKG}/app/www"
-          rm -rf "${PKG}/app/runtime"
-          mkdir -p "${PKG}/app/www/server"
-          mkdir -p "${PKG}/app/www/public"
-          mkdir -p "${PKG}/app/runtime/bin"
-
-      - name: 临时下载内置 Node.js 运行时
-        run: |
-          set -euo pipefail
-          PKG="${{ env.FNOS_PKG_DIR }}"
+          VERSION="${{ needs.prepare.outputs.version }}"
           NODE_VERSION="${{ env.NODE_RUNTIME_VERSION }}"
           NODE_ARCH="${{ matrix.nodeArch }}"
+
+          rm -rf "${PKG}/app/www" "${PKG}/app/runtime"
+          mkdir -p "${PKG}/app/www/server" "${PKG}/app/www/public" "${PKG}/app/runtime/bin"
+
+          # 内置 Node 运行时（临时下载，不入库）
           NODE_TAR="node-v${NODE_VERSION}-linux-${NODE_ARCH}.tar.xz"
           NODE_URL="https://nodejs.org/dist/v${NODE_VERSION}/${NODE_TAR}"
           TMP_DIR="$(mktemp -d)"
-
-          echo "下载 Node.js 运行时: ${NODE_URL}"
-          curl -fSL -o "${TMP_DIR}/node-runtime.tar.xz" "${NODE_URL}"
-          tar -xJf "${TMP_DIR}/node-runtime.tar.xz" -C "${TMP_DIR}" "node-v${NODE_VERSION}-linux-${NODE_ARCH}/bin/node"
+          echo "下载 Node: ${NODE_URL}"
+          curl -fsSL -o "${TMP_DIR}/node.tar.xz" "${NODE_URL}"
+          tar -xJf "${TMP_DIR}/node.tar.xz" -C "${TMP_DIR}" "node-v${NODE_VERSION}-linux-${NODE_ARCH}/bin/node"
           cp "${TMP_DIR}/node-v${NODE_VERSION}-linux-${NODE_ARCH}/bin/node" "${PKG}/app/runtime/bin/node"
           chmod +x "${PKG}/app/runtime/bin/node"
-          ls -lh "${PKG}/app/runtime/bin/node"
           rm -rf "${TMP_DIR}"
 
-      - name: 复制构建产物（解引用符号链接，避免飞牛设置目录权限失败）
-        run: |
-          set -euo pipefail
-          PKG="${{ env.FNOS_PKG_DIR }}"
-
-          # 飞牛安装器处理符号链接时会触发「设置目录权限失败」，rsync -L 解引用
+          # 解引用符号链接，避免飞牛安装「设置目录权限失败」
           rsync -aL --delete .output/server/ "${PKG}/app/www/server/"
           rsync -aL --delete .output/public/ "${PKG}/app/www/public/"
-
           find "${PKG}/app/www/server" -type d -name '.bin' -prune -exec rm -rf {} + 2>/dev/null || true
 
-          if find "${PKG}/app/www/server" -type l | grep -q .; then
-            echo "检测到残留符号链接，尝试替换为真实文件..."
-            find "${PKG}/app/www/server" -type l | while read -r link; do
-              target="$(readlink -f "$link" || true)"
-              if [ -n "$target" ] && [ -e "$target" ]; then
-                rm -f "$link"
-                cp -a "$target" "$link"
-              else
-                echo "无法解析符号链接: $link"
-                rm -f "$link"
-              fi
-            done
-          fi
-
           remaining="$(find "${PKG}/app/www/server" -type l | wc -l)"
-          echo "server 目录剩余符号链接数量: ${remaining}"
+          echo "server 剩余符号链接: ${remaining}"
           if [ "${remaining}" -gt 0 ]; then
-            echo "仍有符号链接残留，列出："
             find "${PKG}/app/www/server" -type l
             exit 1
           fi
-
           test -f "${PKG}/app/www/server/index.mjs"
           test -x "${PKG}/app/runtime/bin/node"
-          echo "打包内容体积："
-          du -sh "${PKG}/app/www/server" "${PKG}/app/www/public" "${PKG}/app/runtime" || true
 
-      - name: 同步 manifest 版本与架构
-        run: |
-          set -euo pipefail
-          PKG="${{ env.FNOS_PKG_DIR }}"
-          sed -i "s/^version=.*/version=${{ needs.prepare.outputs.version }}/" "${PKG}/manifest"
-          if grep -q "^platform=" "${PKG}/manifest"; then
+          # manifest 版本与架构
+          sed -i "s/^version=.*/version=${VERSION}/" "${PKG}/manifest"
+          if grep -q '^platform=' "${PKG}/manifest"; then
             sed -i "s/^platform=.*/platform=${{ matrix.platform }}/" "${PKG}/manifest"
-          elif grep -q "^arch=" "${PKG}/manifest"; then
-            if [ "${{ matrix.platform }}" = "x86" ]; then
-              sed -i "s/^arch=.*/arch=x86_64/" "${PKG}/manifest"
-            else
-              sed -i "s/^arch=.*/arch=aarch64/" "${PKG}/manifest"
-            fi
+          elif grep -q '^arch=' "${PKG}/manifest"; then
+            sed -i "s/^arch=.*/arch=${{ matrix.arch }}/" "${PKG}/manifest"
           else
             echo "arch=${{ matrix.arch }}" >> "${PKG}/manifest"
           fi
 
-      - name: 确保文本文件使用 LF 行尾
-        run: |
-          set -euo pipefail
-          PKG="${{ env.FNOS_PKG_DIR }}"
-          # 与 OneFive 一致：去掉 CR，避免飞牛脚本/配置异常
-          # 使用 $'..' 保证 \r 不会被 YAML 拆行
+          # 脚本/配置统一 LF，并保证 cmd 可执行
           for f in "${PKG}/cmd/"* "${PKG}/wizard/"* "${PKG}/manifest" "${PKG}/config/"* "${PKG}/app/ui/config"; do
-            if [ -f "$f" ]; then
-              sed -i $'s/\r$//' "$f"
-            fi
+            [ -f "$f" ] && sed -i $'s/\r$//' "$f"
           done
           chmod +x "${PKG}/cmd/"*
+          du -sh "${PKG}/app/www/server" "${PKG}/app/www/public" "${PKG}/app/runtime" || true
 
-      - name: 临时下载 fnpack 并构建 fpk
+      - name: 下载 fnpack 并打 fpk
         run: |
           set -euo pipefail
           PKG_PARENT="${{ env.FNOS_PKG_PARENT }}"
-          FNPACK_NAME="${{ matrix.fnpack }}"
-          FNPACK_URL="${{ env.FNPACK_BASE_URL }}/${FNPACK_NAME}"
+          VERSION="${{ needs.prepare.outputs.version }}"
+          ARCH="${{ matrix.arch }}"
+          FNPACK_URL="${{ env.FNPACK_BASE_URL }}/${{ matrix.fnpack }}"
           TMP_FNPACK="$(mktemp)"
 
           echo "下载 fnpack: ${FNPACK_URL}"
@@ -274,20 +211,13 @@ jobs:
           "${TMP_FNPACK}" build -d mediahub
           rm -f "${TMP_FNPACK}"
 
-      - name: 重命名 fpk 包
-        run: |
-          set -euo pipefail
-          PKG_PARENT="${{ env.FNOS_PKG_PARENT }}"
-          VERSION="${{ needs.prepare.outputs.version }}"
-          ARCH="${{ matrix.arch }}"
-          FPK_FILE=$(find "${PKG_PARENT}" -maxdepth 3 -type f -name '*.fpk' | head -n 1)
+          FPK_FILE="$(find . -maxdepth 3 -type f -name '*.fpk' | head -n 1)"
           if [ -z "$FPK_FILE" ]; then
-            echo "未找到 fnpack 生成的 fpk 文件，当前 ${PKG_PARENT} 目录内容："
-            find "${PKG_PARENT}" -maxdepth 3 -print
+            echo "未找到 fpk，目录内容："
+            find . -maxdepth 3 -print
             exit 1
           fi
-          echo "找到 fpk 包: $FPK_FILE"
-          OUT="${PKG_PARENT}/mediahub-${VERSION}-${ARCH}.fpk"
+          OUT="mediahub-${VERSION}-${ARCH}.fpk"
           mv "$FPK_FILE" "$OUT"
           ls -lh "$OUT"
 
@@ -299,85 +229,33 @@ jobs:
 
   release:
     needs: [prepare, package]
+    if: needs.prepare.outputs.should_build == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: write
-
     steps:
-      - name: 下载所有构建产物
+      - name: 下载构建产物
         uses: actions/download-artifact@v4
         with:
           path: artifacts
 
-      - name: 删除当前仓库旧版本
+      - name: 清理本仓库旧 Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          set -euo pipefail
           VERSION="${{ needs.prepare.outputs.version }}"
-
-          gh release list --limit 100 --repo ${{ github.repository }} --json tagName --jq '.[].tagName' | while read tag; do
+          gh release list --limit 100 --repo "${{ github.repository }}" --json tagName --jq '.[].tagName' | while read -r tag; do
             if [[ ( "$tag" == mediahub-* && "$tag" != "mediahub-$VERSION" ) || ( "$tag" == fpk-v* ) ]]; then
               echo "删除旧版本: $tag"
-              gh release delete "$tag" --repo ${{ github.repository }} --yes || true
+              gh release delete "$tag" --repo "${{ github.repository }}" --yes || true
             fi
           done
 
-      - name: 在当前仓库创建发布
+      - name: 发布到当前仓库
         uses: softprops/action-gh-release@v1
         with:
           tag_name: mediahub-${{ needs.prepare.outputs.version }}
           name: MediaHub v${{ needs.prepare.outputs.version }}
           files: artifacts/**/*.fpk
           generate_release_notes: false
-
-      - name: 推送到 FnDepot 仓库
-        if: ${{ needs.prepare.outputs.push_to_fndepot == 'true' }}
-        env:
-          GH_TOKEN: ${{ secrets.FNDEPOT_TOKEN }}
-        run: |
-          VERSION="${{ needs.prepare.outputs.version }}"
-
-          echo "删除 FnDepot 旧版本..."
-          gh release list --limit 100 --repo DinDing1/FnDepot --json tagName --jq '.[].tagName' | while read tag; do
-            if [[ ( "$tag" == mediahub-* && "$tag" != "mediahub-$VERSION" ) || ( "$tag" == fpk-v* ) ]]; then
-              echo "删除旧版本: $tag"
-              gh release delete "$tag" --repo DinDing1/FnDepot --yes || true
-            fi
-          done
-
-          echo "准备文件..."
-          mkdir -p fndepot_files
-          cd artifacts
-
-          for dir in */; do
-            if [ -d "$dir" ]; then
-              arch_name=$(basename "$dir")
-              if [[ "$arch_name" == *"x86"* ]]; then
-                cp "$dir"*.fpk ../fndepot_files/mediahub.fpk
-                echo "x86 架构: mediahub.fpk"
-              elif [[ "$arch_name" == *"aarch64"* || "$arch_name" == *"arm"* ]]; then
-                cp "$dir"*.fpk ../fndepot_files/mediahub_arm.fpk
-                echo "ARM 架构: mediahub_arm.fpk"
-              fi
-            fi
-          done
-
-          cd ../fndepot_files
-
-          echo "上传到 FnDepot..."
-          for file in *.fpk; do
-            if [ -f "$file" ]; then
-              echo "上传: $file"
-              gh release upload "mediahub-$VERSION" "$file" --repo DinDing1/FnDepot --clobber || {
-                echo "Release 不存在，创建新的 Release"
-                gh release create "mediahub-$VERSION" "$file" \
-                  --repo DinDing1/FnDepot \
-                  --title "MediaHub v$VERSION" \
-                  --notes "MediaHub 自动构建发布
-
-          - 版本: v$VERSION
-          - 构建时间: $(date '+%Y-%m-%d %H:%M:%S')
-          - 源码: ${{ github.repository }}"
-              }
-            fi
-          done
