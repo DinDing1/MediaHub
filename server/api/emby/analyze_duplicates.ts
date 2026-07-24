@@ -11,7 +11,8 @@
  */
 
 import { defineEventHandler, readBody, setResponseHeaders } from 'h3'
-import { analyzeDuplicates, setLastDuplicatesReport, ProgressInfo, DuplicateReportItem } from '../../utils/emby/duplicates'
+import { analyzeDuplicates, setLastDuplicatesReport } from '../../utils/emby/duplicates'
+import type { ProgressInfo, DuplicateReportItem } from '../../utils/emby/duplicates'
 import { log } from '../../utils/logger'
 
 export default defineEventHandler(async (event) => {

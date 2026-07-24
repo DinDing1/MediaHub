@@ -10,7 +10,8 @@
  */
 
 import { defineEventHandler, getQuery, setResponseHeaders } from 'h3'
-import { getMissingDetectionLibraries, analyzeMissingEpisodes, EmbyLibrary } from '../../utils/emby/missing_detection'
+import { getMissingDetectionLibraries, analyzeMissingEpisodes } from '../../utils/emby/missing_detection'
+import type { EmbyLibrary } from '../../utils/emby/missing_detection'
 import { log } from '../../utils/logger'
 
 export default defineEventHandler(async (event) => {

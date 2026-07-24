@@ -3,7 +3,8 @@
  * 基于 grammy 实现 Telegram Bot 连接和消息处理
  * 支持 SOCKS5 和 HTTP(S) 代理
  */
-import { Bot, Context, RawApi, Api } from 'grammy'
+import { Bot, Api } from 'grammy'
+import type { Context, RawApi } from 'grammy'
 import { getSetting } from '../db'
 import { log } from '../logger'
 import { handleBotCommand, handleBotShareLink } from './commands'

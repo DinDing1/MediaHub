@@ -20,7 +20,8 @@
  */
 
 import { defineEventHandler, readBody, getQuery, getHeader } from 'h3'
-import { handleEmbyWebhook, EmbyWebhookEvent, getWebhookLogs } from '../../../utils/emby/webhook'
+import { handleEmbyWebhook, getWebhookLogs } from '../../../utils/emby/webhook'
+import type { EmbyWebhookEvent } from '../../../utils/emby/webhook'
 import { log } from '../../../utils/logger'
 
 /**

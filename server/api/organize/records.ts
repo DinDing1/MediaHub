@@ -3,12 +3,11 @@
  * GET: 获取整理记录列表
  * DELETE: 删除记录或清空
  */
-import { 
-  getOrganizeRecords, 
-  getOrganizeRecordsCount, 
-  deleteOrganizeRecord, 
-  clearOrganizeRecords,
-  OrganizeRecord 
+import {
+  getOrganizeRecords,
+  getOrganizeRecordsCount,
+  deleteOrganizeRecord,
+  clearOrganizeRecords
 } from '../../utils/db'
 
 export default defineEventHandler(async (event) => {

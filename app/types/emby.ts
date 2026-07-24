@@ -1,14 +1,12 @@
 /**
- * Emby相关类型定义
+ * Emby 相关类型定义
  */
 
-// Emby服务器配置
 export interface EmbyConfig {
   baseUrl: string
   apiKey: string
 }
 
-// 媒体统计数据
 export interface EmbyStatistics {
   movieCount: number
   tvCount: number
@@ -17,14 +15,12 @@ export interface EmbyStatistics {
   libraryCount: number
 }
 
-// 最近入库统计
 export interface RecentAddedStats {
   today: number
   week: number
   month: number
 }
 
-// 媒体库信息
 export interface EmbyLibrary {
   id: string
   name: string
@@ -35,7 +31,6 @@ export interface EmbyLibrary {
   imageUrl: string | null
 }
 
-// 最近项目
 export interface RecentItem {
   id: string
   name: string
@@ -46,7 +41,6 @@ export interface RecentItem {
   episodeName?: string
 }
 
-// 仪表盘数据
 export interface DashboardData {
   statistics: EmbyStatistics
   recentAddedStats: RecentAddedStats

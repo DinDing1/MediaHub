@@ -8,7 +8,8 @@
  */
 
 import { defineEventHandler, setResponseHeader } from 'h3'
-import { getLastDuplicatesReport, DuplicateReportItem, DuplicateItem } from '../../utils/emby/duplicates'
+import { getLastDuplicatesReport } from '../../utils/emby/duplicates'
+import type { DuplicateReportItem, DuplicateItem } from '../../utils/emby/duplicates'
 import { log } from '../../utils/logger'
 
 export default defineEventHandler((event) => {
